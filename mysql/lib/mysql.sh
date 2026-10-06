@@ -35,12 +35,13 @@ write_client_cnf() {
     local file=$1 user=$2 pass=$3 group=$4 mode=$5
     install -d -m 0755 "$PMH_ETC"
     umask 077
-    cat > "$file" <<EOF
-[client]
-user=$user
-password=$pass
-socket=${MYSQL_SOCKET:-}
-EOF
+    {
+        echo "[client]"
+        echo "user=$user"
+        echo "password=$pass"
+        # an empty socket= would make the client use an empty path
+        [[ -n ${MYSQL_SOCKET:-} ]] && echo "socket=$MYSQL_SOCKET"
+    } > "$file"
     umask 022
     chown "root:$group" "$file"
     chmod "$mode" "$file"

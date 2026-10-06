@@ -57,8 +57,15 @@ install_payload() {
         local d
         for d in common config dashboard "$PMH_DB"; do
             rm -rf "${PMH_HOME:?}/$d"
-            cp -a "$PMH_SRC/$d" "$PMH_HOME/$d"
+            # no -a: do not carry over the clone's owner or SELinux label
+            # (files under /root are admin_home_t, which systemd may not execute)
+            cp -r --preserve=mode,timestamps "$PMH_SRC/$d" "$PMH_HOME/$d"
+            chown -R root:root "$PMH_HOME/$d"
+            chmod -R go-w "$PMH_HOME/$d"
         done
+    fi
+    if command -v restorecon &>/dev/null; then
+        restorecon -R "$PMH_HOME" "$PMH_ETC" "$PMH_STATE" "$PMH_LOG" 2>/dev/null || true
     fi
     [[ -f $PMH_CONF ]] || install -m 0644 "$PMH_SRC/config/parmaham.conf.example" "$PMH_CONF"
 }

@@ -236,6 +236,12 @@ def os_derived(prev, cur, dt):
 # ---------------------------------------------------------------------------
 def node_info():
     info = {"hostname": socket.gethostname(), "kernel": platform.release(), "arch": platform.machine()}
+    try:  # primary IPv4 address (no packet is sent for a UDP connect)
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.connect(("192.0.2.1", 9))
+            info["ip"] = s.getsockname()[0]
+    except OSError:
+        info["ip"] = None
     osr = {}
     for line in read_file("/etc/os-release").splitlines():
         if "=" in line:
@@ -324,7 +330,8 @@ class Sampler(threading.Thread):
             self.db_info = self.db.info()
             self.db_info["error"] = None
         except Exception as e:  # noqa: BLE001 - shown on the dashboard
-            self.db_info = dict(self.db_info, error=str(e).strip()[:300])
+            msg = (getattr(e, "stderr", None) or str(e)).strip()
+            self.db_info = dict(self.db_info, error=msg[:300])
         self.db_info_at = time.time()
 
     def run(self):
@@ -369,7 +376,8 @@ class Sampler(threading.Thread):
                 with self.lock:
                     self.samples.append(point)
             prev_os, prev_db, prev_t = cur_os, cur_db, t0
-            if time.time() - self.db_info_at > 300:
+            # refresh every 5 minutes, or every 30 s while the database is unreachable
+            if time.time() - self.db_info_at > (30 if self.db_info.get("error") else 300):
                 self.refresh_db_info()
             time.sleep(max(0.5, self.interval - (time.time() - t0)))
 
@@ -431,14 +439,20 @@ def service_since(unit):
 
 
 def timer_next(unit):
-    return run(["systemctl", "show", unit, "-P", "NextElapseUSecRealtime"]) or None
+    """Epoch seconds of the timer's next run (monotonic timers included)."""
+    try:
+        timers = json.loads(run(["systemctl", "list-timers", "--all", "--output=json", unit]) or "[]")
+        nxt = timers[0].get("next") if timers else None
+        return nxt / 1e6 if nxt else None
+    except (ValueError, TypeError, AttributeError):
+        return None
 
 
 # ---------------------------------------------------------------------------
 # HTTP
 # ---------------------------------------------------------------------------
 SAMPLER = None
-SUMMARY_CACHE = {"t": 0, "v": None}
+SUMMARY_CACHE = {"t": 0, "v": None}  # "t": (mtime, size) of results.jsonl
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -518,9 +532,14 @@ def api_info():
 
 def api_status():
     now = time.time()
-    if now - SUMMARY_CACHE["t"] > 30:
+    try:
+        st = os.stat(os.path.join(PMH_STATE, "results.jsonl"))
+        key = (st.st_mtime, st.st_size)
+    except OSError:
+        key = None
+    if key != SUMMARY_CACHE["t"]:
         SUMMARY_CACHE["v"] = results_summary()
-        SUMMARY_CACHE["t"] = now
+        SUMMARY_CACHE["t"] = key
     last = read_results(1)
     last_ok = [r for r in read_results(50) if r.get("ok")]
     return {

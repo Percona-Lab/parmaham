@@ -4,10 +4,10 @@
 # Usage: install-dashboard.sh [--port 80] [--bind 0.0.0.0] [--uninstall]
 #
 # The dashboard is public by design: it has no authentication and shows only
-# benchmark, hardware and performance information. It runs as an
-# unprivileged dynamic user and reads database metrics with a monitoring
-# account that has no access to anything but statistics and the benchmark
-# schema.
+# benchmark, hardware and performance information. It runs as the
+# unprivileged system user parmaham-web and reads database metrics with a
+# monitoring account that has no access to anything but statistics and the
+# benchmark schema.
 source "$(dirname "$0")/../common/lib.sh"
 
 usage() { sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
@@ -33,6 +33,10 @@ MONITOR_CNF=$PMH_ETC/$PMH_DB-monitor.cnf
 [[ -r $MONITOR_CNF ]] || warn "$MONITOR_CNF not found - database metrics will be unavailable until database-install.sh has run"
 
 install_payload
+# A static user rather than DynamicUser=yes: D-Bus cannot resolve dynamic
+# users on some distributions (Ubuntu), which breaks systemctl queries.
+WEB_USER=parmaham-web
+id "$WEB_USER" &>/dev/null || useradd --system --no-create-home --home-dir / --shell /usr/sbin/nologin "$WEB_USER"
 
 cat > "/etc/systemd/system/$UNIT" <<EOF
 [Unit]
@@ -44,7 +48,8 @@ Wants=network-online.target
 ExecStart=/usr/bin/python3 $PMH_HOME/dashboard/parmaham_dashboard.py
 Environment=PMH_HOME=$PMH_HOME PMH_ETC=$PMH_ETC PMH_STATE=$PMH_STATE PYTHONUNBUFFERED=1
 LoadCredential=db.cnf:$MONITOR_CNF
-DynamicUser=yes
+User=parmaham-web
+Group=parmaham-web
 AmbientCapabilities=CAP_NET_BIND_SERVICE
 CapabilityBoundingSet=CAP_NET_BIND_SERVICE
 NoNewPrivileges=yes

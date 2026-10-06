@@ -171,6 +171,17 @@ vm.swappiness = 1
 EOF
 sysctl -q -p /etc/sysctl.d/90-parmaham.conf || true
 
+# Pressure stall information is shown on the dashboard; some kernels
+# (RHEL 9 and derivatives) build it in but disable it unless booted with psi=1.
+if [[ ! -e /proc/pressure/cpu ]]; then
+    if command -v grubby &>/dev/null; then
+        grubby --update-kernel=ALL --args=psi=1
+        warn "pressure stall information enabled with the psi=1 kernel argument; reboot for it to take effect"
+    else
+        warn "this kernel does not provide pressure stall information (/proc/pressure); add psi=1 to the kernel command line"
+    fi
+fi
+
 cat > /etc/systemd/system/parmaham-thp.service <<EOF
 [Unit]
 Description=Parma Ham: disable transparent huge pages (recommended for MySQL)

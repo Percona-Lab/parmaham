@@ -197,13 +197,18 @@ status files and dashboard do not depend on the database.
 
 ## Status
 
-* The HammerDB scripts (schema build, paced timed runs), the purge procedures,
-  the workload loop and the dashboard have been tested against Percona Server
-  9.7.2 and HammerDB 6.0:
-  * paced runs hit the target within ±2%
-  * purges ran alongside the workload without errors or orphaned rows
-* The OS-level installers (`database-install.sh`, the systemd units) have not
-  yet been run end to end on fresh Debian/Ubuntu and RHEL machines.
+The full sequence has been tested end to end on fresh Linode VMs (4 vCPU,
+8 GB) running **Ubuntu 24.04** and **Rocky Linux 9** (SELinux enforcing),
+with Percona Server 9.7.2 and HammerDB 6.0:
+
+* All install scripts and services ran, and everything came back after a reboot.
+* Paced iterations held 98.7% to 100.2% of the target throughput.
+* Purges ran alongside the workload without errors.
+* After a database outage, the workload recorded a failed run and continued.
+* The dashboard rendered without JavaScript errors in light and dark themes
+  and at phone width.
+
+Not tested yet: Debian 12, aarch64, and multi-day runs.
 
 ## License
 
