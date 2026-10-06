@@ -141,7 +141,8 @@ Runs a public dashboard with no login, by design. It shows:
 * **Benchmark:** state, progress of the current iteration, target and capacity,
   live NOPM/TPM against the target, the result of every run, and recent runs.
 * **Database:** transactions and queries, InnoDB row operations, threads, buffer
-  pool, redo log and checkpoint age, undo history length, and row lock waits.
+  pool, redo log and checkpoint age, undo history length, row lock waits, and
+  `mysqld` memory (VSZ, RSS, and PSS + SwapPSS on one chart).
 * **Operating system:** pressure stall information (CPU, memory and IO
   `some`/`full`), CPU breakdown including steal, load and run queue, memory and
   swap, disk IOPS, throughput and utilization, network, context switches and
@@ -154,7 +155,13 @@ Implementation notes:
 
 * Written in plain Python 3 with one static HTML page. It uses no third-party
   packages and loads nothing from a CDN, so it works on isolated networks.
-* Metrics are sampled every 5 s, and 1 h of history is kept in memory.
+* Metrics are sampled every 5 s; the 5m, 15m and 1h views use those samples
+  (kept in memory for 1 h).
+* The 3h and 24h views use 1-minute averages kept for 24 h. They are saved in
+  `/var/lib/parmaham-dashboard`, so history survives restarts and reboots.
+* PSS and SwapPSS need ptrace access to `mysqld`. A separate helper,
+  `parmaham-procmem.service`, reads them; it has `CAP_SYS_PTRACE` but no
+  network access, so the public dashboard needs no privileges.
 * Runs as a systemd `DynamicUser` with a read-only filesystem view. The
   monitoring credentials are passed in with `LoadCredential`.
 * JSON API: `/api/info`, `/api/status`, `/api/metrics?since=<epoch>`,
@@ -175,6 +182,7 @@ Implementation notes:
 | `parmaham-workload.service` | the permanent HammerDB loop (user `parmaham`) |
 | `parmaham-purge.timer` / `.service` | periodic purge |
 | `parmaham-dashboard.service` | dashboard |
+| `parmaham-procmem.service` | reads `mysqld` memory (VSZ/RSS/PSS) for the dashboard |
 | `parmaham-capacity.service` | transient, `compute-capacity.sh --background` |
 | `parmaham-thp.service` | disables transparent huge pages at boot |
 

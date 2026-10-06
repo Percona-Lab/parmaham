@@ -13,14 +13,15 @@ source "$(dirname "$0")/../common/lib.sh"
 usage() { sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
 
 UNIT=parmaham-dashboard.service
+MEM_UNIT=parmaham-procmem.service
 require_root
 load_config
 while (($#)); do
     case $1 in
         --port)      conf_set DASHBOARD_PORT "$2"; shift 2 ;;
         --bind)      conf_set DASHBOARD_BIND "$2"; shift 2 ;;
-        --uninstall) systemctl disable --now "$UNIT" 2>/dev/null || true
-                     rm -f "/etc/systemd/system/$UNIT"; systemctl daemon-reload
+        --uninstall) systemctl disable --now "$UNIT" "$MEM_UNIT" 2>/dev/null || true
+                     rm -f "/etc/systemd/system/$UNIT" "/etc/systemd/system/$MEM_UNIT"; systemctl daemon-reload
                      log "dashboard removed"; exit 0 ;;
         -h|--help)   usage ;;
         *) warn "unknown option $1"; usage 1 ;;
@@ -38,16 +39,45 @@ install_payload
 WEB_USER=parmaham-web
 id "$WEB_USER" &>/dev/null || useradd --system --no-create-home --home-dir / --shell /usr/sbin/nologin "$WEB_USER"
 
+# Database server memory (PSS needs ptrace access, so it is read by a small
+# separate service without network access instead of the public dashboard)
+DB_PROCESS=$(python3 -c "import importlib.util as u, sys
+s = u.spec_from_file_location('c', sys.argv[1]); m = u.module_from_spec(s); s.loader.exec_module(m)
+print(getattr(m, 'PROCESS', ''))" "$PMH_HOME/$PMH_DB/dashboard_collector.py")
+cat > "/etc/systemd/system/$MEM_UNIT" <<EOF
+[Unit]
+Description=Parma Ham: database server memory usage for the dashboard
+
+[Service]
+ExecStart=/usr/bin/python3 $PMH_HOME/dashboard/procmem.py /run/parmaham/procmem.json $DASHBOARD_INTERVAL $DB_PROCESS
+RuntimeDirectory=parmaham
+RuntimeDirectoryMode=0755
+CapabilityBoundingSet=CAP_SYS_PTRACE
+AmbientCapabilities=CAP_SYS_PTRACE
+NoNewPrivileges=yes
+PrivateNetwork=yes
+RestrictAddressFamilies=AF_UNIX
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
 cat > "/etc/systemd/system/$UNIT" <<EOF
 [Unit]
 Description=Parma Ham dashboard
-After=network-online.target
-Wants=network-online.target
+After=network-online.target $MEM_UNIT
+Wants=network-online.target $MEM_UNIT
 
 [Service]
 ExecStart=/usr/bin/python3 $PMH_HOME/dashboard/parmaham_dashboard.py
 Environment=PMH_HOME=$PMH_HOME PMH_ETC=$PMH_ETC PMH_STATE=$PMH_STATE PYTHONUNBUFFERED=1
 LoadCredential=db.cnf:$MONITOR_CNF
+StateDirectory=parmaham-dashboard
 User=parmaham-web
 Group=parmaham-web
 AmbientCapabilities=CAP_NET_BIND_SERVICE
@@ -66,8 +96,8 @@ RestartSec=5
 WantedBy=multi-user.target
 EOF
 systemctl daemon-reload
-systemctl enable "$UNIT" &>/dev/null
-systemctl restart "$UNIT"
+systemctl enable "$MEM_UNIT" "$UNIT" &>/dev/null
+systemctl restart "$MEM_UNIT" "$UNIT"
 
 # open the port in an active host firewall
 if command -v ufw &>/dev/null && ufw status 2>/dev/null | grep -q 'Status: active'; then

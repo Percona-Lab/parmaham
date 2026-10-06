@@ -50,6 +50,8 @@ DASHBOARD_PORT=80
 # Metric sampling interval (seconds) and in-memory history (minutes)
 DASHBOARD_INTERVAL=5
 DASHBOARD_HISTORY_MIN=60
+# 1-minute averages kept (and saved across restarts) for the long ranges
+DASHBOARD_ROLLUP_HOURS=24
 
 # --- Tool versions ----------------------------------------------------------
 HAMMERDB_VERSION=6.0

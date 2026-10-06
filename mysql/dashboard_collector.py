@@ -9,6 +9,8 @@ Interface used by dashboard/parmaham_dashboard.py:
 import subprocess
 
 BENCH_DB = "tpcc"
+# Server process name; its memory is reported by procmem.py
+PROCESS = "mysqld"
 
 # Counters converted to per-second rates by the dashboard: key -> status vars summed
 RATES = {

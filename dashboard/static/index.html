@@ -155,7 +155,7 @@ footer { color: var(--faint); font-size: 12px; margin-top: 28px; text-align: cen
     <span class="pill" id="state"><span class="dot"></span><span>loading</span></span>
     <div class="tools">
       <div class="seg" id="range">
-        <button data-min="5">5m</button><button data-min="15" class="on">15m</button><button data-min="60">1h</button>
+        <button data-min="5">5m</button><button data-min="15" class="on">15m</button><button data-min="60">1h</button><button data-min="180">3h</button><button data-min="1440">24h</button>
       </div>
       <button class="iconbtn" id="theme" title="Toggle light / dark">◐</button>
     </div>
@@ -180,7 +180,7 @@ footer { color: var(--faint); font-size: 12px; margin-top: 28px; text-align: cen
 
   <h2>Benchmark <span class="aside" id="bench-aside"></span></h2>
   <div class="grid two">
-    <div class="panel"><div class="phead"><h3>Live throughput</h3><span class="cur">sampled every <span id="ivl">–</span>s</span></div><div class="chart tall" id="c-tput"></div><div class="legend" id="l-tput"></div></div>
+    <div class="panel"><div class="phead"><h3>Live throughput</h3><span class="cur" id="res-note">sampled every <span id="ivl">–</span>s</span></div><div class="chart tall" id="c-tput"></div><div class="legend" id="l-tput"></div></div>
     <div class="panel"><div class="phead"><h3>Result of every run</h3><span class="cur" id="hist-span"></span></div><div class="chart tall" id="c-hist"></div><div class="legend" id="l-hist"></div></div>
   </div>
 
@@ -192,6 +192,7 @@ footer { color: var(--faint); font-size: 12px; margin-top: 28px; text-align: cen
     <div class="panel"><div class="phead"><h3>Buffer pool</h3></div><div class="chart" id="c-bp"></div><div class="legend" id="l-bp"></div></div>
     <div class="panel"><div class="phead"><h3>Redo log</h3></div><div class="chart" id="c-redo"></div><div class="legend" id="l-redo"></div></div>
     <div class="panel"><div class="phead"><h3>Undo history &amp; lock waits</h3></div><div class="chart" id="c-hll"></div><div class="legend" id="l-hll"></div></div>
+    <div class="panel"><div class="phead"><h3><span id="proc-name">Server</span> memory</h3><span class="cur">PSS includes swapped-out share</span></div><div class="chart" id="c-pmem"></div><div class="legend" id="l-pmem"></div></div>
   </div>
 
   <h2>Operating system <span class="aside" id="os-aside"></span></h2>
@@ -283,7 +284,7 @@ class Chart {
     this.canvas.addEventListener("mouseleave", () => { this.hover = null; this.draw(); });
     new ResizeObserver(() => this.draw()).observe(this.box);
   }
-  set(data, x0, x1) { this.data = data; this.x0 = x0; this.x1 = x1; this.draw(); this.renderLegend(); }
+  set(data, x0, x1, res) { this.data = data; this.x0 = x0; this.x1 = x1; this.res = res || 5; this.draw(); this.renderLegend(); }
   value(s, p) { const v = typeof s.get === "function" ? s.get(p) : p[s.key]; return v == null || isNaN(v) ? null : v; }
   renderLegend() {
     if (!this.legend) return;
@@ -340,7 +341,7 @@ class Chart {
     this.series.forEach((s, si) => {
       const color = css(s.color);
       const pts = data.map((p, i) => { const v = this.value(s, p); if (v == null) return null; const y = this.opts.stacked ? base[i] + v : v; return [X(p.t), Y(y), y]; });
-      const gapLimit = this.opts.gap ?? Infinity;
+      const gapLimit = this.opts.gap ? Math.max(this.opts.gap, this.res * 2.5) : Infinity;
       g.lineWidth = s.width || 1.6; g.strokeStyle = color; g.setLineDash(s.dash ? [5, 4] : []);
       g.beginPath(); let pen = false, lastT = null;
       pts.forEach((pt, i) => {
@@ -370,7 +371,7 @@ class Chart {
       let best = 0; for (let i = 1; i < data.length; i++) if (Math.abs(data[i].t - t) < Math.abs(data[best].t - t)) best = i;
       const p = data[best], x = X(p.t);
       g.strokeStyle = css("--faint"); g.lineWidth = 1; g.beginPath(); g.moveTo(Math.round(x) + .5, padT); g.lineTo(Math.round(x) + .5, padT + ph); g.stroke();
-      const head = this.opts.tipTitle ? this.opts.tipTitle(p) : new Date(p.t * 1000).toLocaleTimeString();
+      const head = this.opts.tipTitle ? this.opts.tipTitle(p) : (this.res >= 60 ? "avg of minute · " : "") + new Date(p.t * 1000).toLocaleTimeString();
       this.tip.innerHTML = `<div class="t">${esc(head)}</div>` + this.series.map((s) =>
         `<div><span style="color:${css(s.color)}">●</span> ${esc(s.name)}: <b class="num">${(() => { const v = this.value(s, p); return v == null ? "–" : fmt(v); })()}</b></div>`).join("");
       this.tip.style.display = "block";
@@ -414,13 +415,14 @@ const charts = {
   dbw: new Chart("c-dbw", [M("disk_read_bytes", "Read", "--c1"), M("disk_write_bytes", "Write", "--c2")], { fmt: mbps }),
   util: new Chart("c-util", [M("disk_util_max", "Utilization", "--c5", { fill: true })], { fmt: fmtPct, max: 100 }),
   net: new Chart("c-net", [M("net_rx_bytes", "Receive", "--c1"), M("net_tx_bytes", "Transmit", "--c2")], { fmt: mbps }),
+  pmem: new Chart("c-pmem", [M("proc_vsz", "VSZ", "--c5"), M("proc_rss", "RSS", "--c1", { fill: true, width: 2 }), M("proc_pss_swap", "PSS + SwapPSS", "--c2", { width: 2 })], { fmt: fmtBytes, empty: "waiting for parmaham-procmem.service…" }),
   ctx: new Chart("c-ctx", [M("ctx_switches", "Context switches/s", "--c1"), M("major_faults", "Major faults/s", "--c4"), { name: "Swap pages/s", color: "--c5", get: (p) => p.swap_in_pages == null ? null : p.swap_in_pages + p.swap_out_pages }]),
 };
 
 // ---------------------------------------------------------------------------
 // state & polling
 // ---------------------------------------------------------------------------
-let samples = [], lastT = 0, rangeMin = 15, targetNopm = null, info = null, status = null, results = [];
+let samples = [], lastT = 0, rollup = [], rollupT = 0, rangeMin = 15, targetNopm = null, info = null, status = null, results = [];
 try { const r = localStorage.getItem("pmh-range"); if (r) rangeMin = +r; } catch (e) {}
 try { const th = localStorage.getItem("pmh-theme"); if (th) document.documentElement.dataset.theme = th; } catch (e) {}
 document.querySelectorAll("#range button").forEach((b) => {
@@ -444,16 +446,28 @@ async function pollMetrics() {
     const d = await getJSON("/api/metrics?since=" + lastT);
     if (d.samples.length) { samples.push(...d.samples); lastT = d.samples[d.samples.length - 1].t; }
     const keep = d.now - 3700; while (samples.length && samples[0].t < keep) samples.shift();
-    $("ivl").textContent = d.interval;
     connection(true);
     renderMetrics();
   } catch (e) { connection(false); }
 }
+async function pollRollup() {
+  try {
+    const d = await getJSON("/api/metrics?res=60&since=" + rollupT);
+    if (d.samples.length) { rollup.push(...d.samples); rollupT = d.samples[d.samples.length - 1].t; }
+    const keep = d.now - 86400 - 300; while (rollup.length && rollup[0].t < keep) rollup.shift();
+    if (rangeMin > 60) renderMetrics();
+  } catch (e) {}
+}
 function renderMetrics() {
   const now = samples.length ? samples[samples.length - 1].t : Date.now() / 1000;
   const x0 = now - rangeMin * 60;
-  const view = samples.filter((p) => p.t >= x0);
-  for (const [k, c] of Object.entries(charts)) if (k !== "hist") c.set(view, Math.max(x0, view.length ? view[0].t : x0), now);
+  // ranges over an hour use 1-minute averages, plus the raw samples newer than the last average
+  const long = rangeMin > 60;
+  let view = long ? rollup.filter((p) => p.t >= x0) : samples.filter((p) => p.t >= x0);
+  if (long) { const lastRoll = view.length ? view[view.length - 1].t : 0; view = view.concat(samples.filter((p) => p.t > lastRoll + 30)); }
+  const res = long ? 60 : 5;
+  for (const [k, c] of Object.entries(charts)) if (k !== "hist") c.set(view, Math.max(x0, view.length ? view[0].t : x0), now, res);
+  $("res-note").innerHTML = long ? "1-minute averages" : `sampled every <span id="ivl">${samples.length > 1 ? Math.round(samples[samples.length - 1].t - samples[samples.length - 2].t) : "–"}</span>s`;
   const last = samples[samples.length - 1];
   if (last) {
     $("t-nopm").innerHTML = fmtInt(last.nopm) + "<small>NOPM</small>";
@@ -571,6 +585,7 @@ function renderRuns() {
 const kv = (rows) => rows.filter((r) => r[1] != null && r[1] !== "").map(([k, v]) => `<tr><td>${esc(k)}</td><td>${v}</td></tr>`).join("");
 function renderInfo() {
   const n = info.node, db = info.db || {}, fs = info.filesystem;
+  if (info.db_process) $("proc-name").textContent = info.db_process;
   $("host").innerHTML = `<b>${esc(n.hostname)}</b>${n.ip && n.ip !== n.hostname ? ` (${esc(n.ip)})` : ""} · ${esc(n.os)}`;
   const topo = [n.sockets && `${n.sockets} socket${n.sockets > 1 ? "s" : ""}`, n.cores_per_socket && `${n.cores_per_socket} cores/socket`, n.threads_per_core && `${n.threads_per_core} threads/core`].filter(Boolean).join(" · ");
   $("i-node").innerHTML = kv([
@@ -611,8 +626,9 @@ function renderBenchInfo() {
   ]);
 }
 
-pollInfo(); pollStatus(); pollResults(); pollMetrics();
+pollInfo(); pollStatus(); pollResults(); pollMetrics(); pollRollup();
 setInterval(pollMetrics, 3000);
+setInterval(pollRollup, 60000);
 setInterval(pollStatus, 5000);
 setInterval(pollResults, 60000);
 setInterval(pollInfo, 300000);

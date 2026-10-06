@@ -311,13 +311,114 @@ def filesystem_info(path):
 
 
 # ---------------------------------------------------------------------------
+# process memory written by procmem.py (parmaham-procmem.service)
+# ---------------------------------------------------------------------------
+PROCMEM_FILE = os.environ.get("PMH_PROCMEM", "/run/parmaham/procmem.json")
+
+
+def db_process_memory(name, max_age):
+    data = read_json(PROCMEM_FILE)
+    if not data or time.time() - data.get("t", 0) > max_age:
+        return {}
+    p = data.get("procs", {}).get(name)
+    if not p:
+        return {}
+    out = {"proc_vsz": p.get("vsz"), "proc_rss": p.get("rss")}
+    if "pss" in p:
+        out["proc_pss_swap"] = p["pss"] + p.get("swap_pss", 0)
+    return {k: v for k, v in out.items() if v is not None}
+
+
+# ---------------------------------------------------------------------------
+# long-term history: 1-minute averages, kept for ROLLUP_HOURS and persisted
+# as JSON lines so the history survives restarts
+# ---------------------------------------------------------------------------
+ROLLUP_SEC = 60
+
+
+class Rollup:
+    def __init__(self, path, hours):
+        self.path = path
+        self.keep = hours * 3600
+        self.points = collections.deque()
+        self.bucket = None
+        self.pending = []
+        self.lines = 0
+        self.load()
+
+    def load(self):
+        if not self.path:
+            return
+        cutoff = time.time() - self.keep
+        try:
+            with open(self.path) as f:
+                for line in f:
+                    try:
+                        p = json.loads(line)
+                    except ValueError:
+                        continue
+                    if p.get("t", 0) > cutoff:
+                        self.points.append(p)
+        except OSError:
+            pass
+        self.compact()
+
+    def compact(self):
+        if not self.path:
+            return
+        tmp = self.path + ".tmp"
+        try:
+            with open(tmp, "w") as f:
+                for p in self.points:
+                    f.write(json.dumps(p, separators=(",", ":")) + "\n")
+            os.replace(tmp, self.path)
+            self.lines = len(self.points)
+        except OSError as e:
+            print(f"warning: cannot write {self.path}: {e}", file=sys.stderr)
+            self.path = None
+
+    def add(self, point):
+        bucket = int(point["t"] // ROLLUP_SEC)
+        if self.bucket is not None and bucket != self.bucket and self.pending:
+            self.flush()
+        self.bucket = bucket
+        self.pending.append(point)
+
+    def flush(self):
+        sums, counts = {}, {}
+        for p in self.pending:
+            for k, v in p.items():
+                if k != "t" and isinstance(v, (int, float)):
+                    sums[k] = sums.get(k, 0) + v
+                    counts[k] = counts.get(k, 0) + 1
+        avg = {k: round(sums[k] / counts[k], 3) for k in sums}
+        avg["t"] = self.bucket * ROLLUP_SEC + ROLLUP_SEC / 2
+        self.pending = []
+        self.points.append(avg)
+        cutoff = time.time() - self.keep
+        while self.points and self.points[0]["t"] < cutoff:
+            self.points.popleft()
+        if self.path:
+            try:
+                with open(self.path, "a") as f:
+                    f.write(json.dumps(avg, separators=(",", ":")) + "\n")
+                self.lines += 1
+            except OSError:
+                pass
+            if self.lines > 2 * len(self.points) + 60:
+                self.compact()
+
+
+# ---------------------------------------------------------------------------
 # sampler thread
 # ---------------------------------------------------------------------------
 class Sampler(threading.Thread):
-    def __init__(self, interval, history_min):
+    def __init__(self, interval, history_min, rollup_hours):
         super().__init__(daemon=True)
         self.interval = interval
         self.samples = collections.deque(maxlen=int(history_min * 60 / interval) + 1)
+        state_dir = os.environ.get("STATE_DIRECTORY")
+        self.rollup = Rollup(os.path.join(state_dir, "rollup.jsonl") if state_dir else None, rollup_hours)
         self.lock = threading.Lock()
         self.db_module, self.db = load_db_collector()
         self.db_info = {}
@@ -370,11 +471,13 @@ class Sampler(threading.Thread):
                     point["db_up"] = 1
                 elif cur_db is None:
                     point["db_up"] = 0
+                point.update(db_process_memory(getattr(self.db_module, "PROCESS", ""), 3 * self.interval))
                 point = {k: (round(v, 3) if isinstance(v, float) else v) for k, v in point.items()}
                 if "disks" in point:
                     point["disks"] = {n: {k: round(v, 2) for k, v in d.items()} for n, d in point["disks"].items()}
                 with self.lock:
                     self.samples.append(point)
+                    self.rollup.add(point)
             prev_os, prev_db, prev_t = cur_os, cur_db, t0
             # refresh every 5 minutes, or every 30 s while the database is unreachable
             if time.time() - self.db_info_at > (30 if self.db_info.get("error") else 300):
@@ -384,6 +487,10 @@ class Sampler(threading.Thread):
     def series(self, since):
         with self.lock:
             return [p for p in self.samples if p["t"] > since]
+
+    def rollup_series(self, since):
+        with self.lock:
+            return [p for p in self.rollup.points if p["t"] > since]
 
 
 # ---------------------------------------------------------------------------
@@ -497,8 +604,12 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json(api_status())
             elif url.path == "/api/metrics":
                 since = float(q.get("since", ["0"])[0])
-                self.send_json({"interval": SAMPLER.interval, "now": time.time(),
-                                "samples": SAMPLER.series(since)})
+                if q.get("res", [""])[0] == str(ROLLUP_SEC):
+                    self.send_json({"interval": ROLLUP_SEC, "now": time.time(),
+                                    "samples": SAMPLER.rollup_series(since)})
+                else:
+                    self.send_json({"interval": SAMPLER.interval, "now": time.time(),
+                                    "samples": SAMPLER.series(since)})
             elif url.path == "/api/results":
                 limit = min(5000, int(q.get("limit", ["500"])[0]))
                 self.send_json({"results": read_results(limit)})
@@ -527,6 +638,7 @@ def api_info():
         "schema": read_json(os.path.join(PMH_STATE, "schema.json")),
         "capacity": read_json(os.path.join(PMH_STATE, "capacity.json")),
         "interval": SAMPLER.interval,
+        "db_process": getattr(SAMPLER.db_module, "PROCESS", None),
     }
 
 
@@ -568,7 +680,8 @@ def main():
     port = int(os.environ.get("DASHBOARD_PORT", CONF.get("DASHBOARD_PORT", 80)))
     if not shutil.which("mysql") and CONF.get("PMH_DB", "mysql") == "mysql":
         print("warning: mysql client not found, database metrics unavailable", file=sys.stderr)
-    SAMPLER = Sampler(interval, history)
+    rollup_hours = float(CONF.get("DASHBOARD_ROLLUP_HOURS", 24))
+    SAMPLER = Sampler(interval, history, rollup_hours)
     SAMPLER.refresh_db_info()
     SAMPLER.start()
     httpd = ThreadingHTTPServer((bind, port), Handler)
