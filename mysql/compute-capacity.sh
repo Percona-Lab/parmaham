@@ -65,7 +65,7 @@ export PMH_VU=$CAPACITY_VU PMH_RAMPUP=$CAPACITY_RAMPUP PMH_DURATION=$CAPACITY_DU
 STARTED=$(date -u +%FT%TZ)
 LOGFILE=$PMH_LOG/capacity.log
 write_status capacity started_at "$STARTED" vu "$CAPACITY_VU" \
-    rampup_min "$CAPACITY_RAMPUP" duration_min "$CAPACITY_DURATION"
+    rampup_min "$CAPACITY_RAMPUP" duration_min "$CAPACITY_DURATION" log capacity.log
 log "measuring capacity: $CAPACITY_VU virtual users, ${CAPACITY_RAMPUP}min warm-up + ${CAPACITY_DURATION}min measurement (log: $LOGFILE)"
 log "expected to finish at $(date -d "+$(( CAPACITY_RAMPUP + CAPACITY_DURATION + 1 )) min" '+%F %T')"
 

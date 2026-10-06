@@ -15,6 +15,7 @@ import importlib.util
 import json
 import os
 import platform
+import re
 import shlex
 import shutil
 import socket
@@ -30,6 +31,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 PMH_HOME = os.environ.get("PMH_HOME", os.path.dirname(HERE))
 PMH_ETC = os.environ.get("PMH_ETC", "/etc/parmaham")
 PMH_STATE = os.environ.get("PMH_STATE", "/var/lib/parmaham")
+PMH_LOG = os.environ.get("PMH_LOG", "/var/log/parmaham")
 STATIC = os.path.join(HERE, "static")
 
 
@@ -552,6 +554,147 @@ def results_summary():
     return {"runs": count, "ok": ok, "first_started_at": first}
 
 
+# ---------------------------------------------------------------------------
+# HammerDB run logs
+# ---------------------------------------------------------------------------
+LOG_NAME = re.compile(r"^(runs/run-\d{8}-\d{6}\.log|capacity\.log)$")
+# HammerDB echoes settings it changes; never show a password even if a log
+# written by an older version still contains one
+SECRET = [
+    (re.compile(r"(_pass(?:word)? from ).* to .* for "), r"\1*** to *** for "),
+    (re.compile(r"^Value .* for ([a-z_:]*_pass(?:word)?) is the same as existing value .*, no change"),
+     r"Value *** for \1 is the same as existing value ***, no change"),
+]
+CONTROL = re.compile(r"\x1b\[[0-9;]*[A-Za-z]|[\x00-\x08\x0b-\x1f\x7f]")
+
+
+def clean_line(line):
+    line = CONTROL.sub("", line.rstrip("\r\n"))
+    for rx, repl in SECRET:
+        line = rx.sub(repl, line)
+    return line
+
+
+def log_path(name):
+    """Absolute path of an allowed log file name, or None."""
+    if not name or not LOG_NAME.match(name):
+        return None
+    return os.path.join(PMH_LOG, name)
+
+
+def newest_run_log(exclude=None):
+    try:
+        names = sorted(n for n in os.listdir(os.path.join(PMH_LOG, "runs")) if LOG_NAME.match("runs/" + n))
+    except OSError:
+        return None
+    names = ["runs/" + n for n in names if "runs/" + n != exclude]
+    return names[-1] if names else None
+
+
+def tail_log(name, lines):
+    path = log_path(name)
+    if not path:
+        return None
+    try:
+        with open(path, "rb") as f:
+            st = os.fstat(f.fileno())
+            f.seek(max(0, st.st_size - lines * 200))
+            data = f.read().decode(errors="replace").splitlines()
+    except OSError:
+        return None
+    data = [clean_line(x) for x in data if x.strip()]
+    return {"file": name, "size": st.st_size, "mtime": st.st_mtime, "lines": data[-lines:]}
+
+
+SUMMARY_PATTERNS = {
+    "hammerdb_version": re.compile(r"^HammerDB CLI v(\S+)"),
+    "db_version": re.compile(r"^Vuser 1:DBVersion:(\S+)"),
+    "vu_created": re.compile(r"^(\d+) Virtual Users Created"),
+    "vu_active": re.compile(r"^Vuser 1:(\d+) Active Virtual Users configured"),
+    "rampup_min": re.compile(r"^Vuser 1:Beginning rampup time of (\d+) minutes"),
+    "duration_min": re.compile(r"^Vuser 1:Timing test period of (\d+) in minutes"),
+    "pace_ms": re.compile(r"^PARMAHAM: pacing each virtual user to one transaction every ([\d.]+) ms"),
+    "result_line": re.compile(r"^Vuser 1:(TEST RESULT : .*)"),
+    "nopm": re.compile(r"^Vuser 1:TEST RESULT : System achieved (\d+) NOPM"),
+    "tpm": re.compile(r"^Vuser 1:TEST RESULT : .* from (\d+) \S+ TPM"),
+}
+ERROR_RX = re.compile(r"error|exception|failed to|lost connection|deadlock", re.I)
+SUMMARY_CACHE_LOG = {}
+
+
+def summarize_log(name):
+    """Parse a HammerDB run log into a summary (cached by size and mtime)."""
+    path = log_path(name)
+    if not path:
+        return None
+    try:
+        st = os.stat(path)
+    except OSError:
+        return None
+    key = (name, st.st_size, st.st_mtime)
+    if SUMMARY_CACHE_LOG.get("key") == key:
+        return SUMMARY_CACHE_LOG["value"]
+    out = {"file": name, "size": st.st_size, "mtime": st.st_mtime,
+           "vu_success": 0, "vu_failed": 0, "errors": [], "error_count": 0, "complete": False}
+    try:
+        with open(path, errors="replace") as f:
+            for raw in f:
+                line = clean_line(raw)
+                if not line:
+                    continue
+                for k, rx in SUMMARY_PATTERNS.items():
+                    if k not in out:
+                        m = rx.search(line)
+                        if m:
+                            out[k] = m.group(1)
+                worker = not line.startswith("Vuser 1:")  # Vuser 1 is the monitor
+                if line.endswith(":FINISHED SUCCESS"):
+                    out["vu_success"] += worker
+                elif line.endswith(":FINISHED FAILED"):
+                    out["vu_failed"] += worker
+                elif line == "ALL VIRTUAL USERS COMPLETE":
+                    out["complete"] = True
+                elif ERROR_RX.search(line) and "RAISEERROR" not in line:
+                    out["error_count"] += 1
+                    if len(out["errors"]) < 5:
+                        out["errors"].append(line[:300])
+    except OSError:
+        return None
+    for k in ("vu_created", "vu_active", "rampup_min", "duration_min", "nopm", "tpm"):
+        if k in out:
+            out[k] = int(out[k])
+    if "pace_ms" in out:
+        out["pace_ms"] = float(out["pace_ms"])
+    SUMMARY_CACHE_LOG.update(key=key, value=out)
+    return out
+
+
+def current_log_name():
+    st = read_json(os.path.join(PMH_STATE, "status.json"), {}) or {}
+    if st.get("state") in ("running", "capacity") and log_path(st.get("log")):
+        return st["log"]
+    return None
+
+
+def last_completed():
+    """Most recent finished run (result entry + parsed log summary)."""
+    results = read_results(1)
+    last = results[-1] if results else None
+    name = last.get("log") if last else None
+    if not log_path(name) and last and last.get("started_at"):
+        # results written before log names were recorded: the log is named
+        # after the start time (the workload loop uses the node's local time)
+        try:
+            t = time.strptime(last["started_at"], "%Y-%m-%dT%H:%M:%SZ")
+            local = time.localtime(time.mktime(t) - time.timezone)
+            name = time.strftime("runs/run-%Y%m%d-%H%M%S.log", local)
+        except ValueError:
+            name = None
+    if not log_path(name) or not os.path.exists(log_path(name)):
+        name = newest_run_log(exclude=current_log_name())
+    return {"result": last, "summary": summarize_log(name) if name else None}
+
+
 def service_state(unit):
     return run(["systemctl", "is-active", unit]) or "unknown"
 
@@ -629,6 +772,17 @@ class Handler(BaseHTTPRequestHandler):
             elif url.path == "/api/results":
                 limit = min(5000, int(q.get("limit", ["500"])[0]))
                 self.send_json({"results": read_results(limit)})
+            elif url.path == "/api/lastrun":
+                self.send_json(last_completed())
+            elif url.path == "/api/log":
+                which = q.get("which", ["current"])[0]
+                lines = max(10, min(500, int(q.get("lines", ["80"])[0])))
+                if which == "current":
+                    name = current_log_name() or newest_run_log()
+                else:
+                    lc = last_completed()
+                    name = lc["summary"]["file"] if lc["summary"] else None
+                self.send_json(tail_log(name, lines) if name else {"file": None, "lines": []})
             elif url.path == "/healthz":
                 self.send_json({"ok": True})
             else:

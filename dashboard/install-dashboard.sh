@@ -75,7 +75,7 @@ Wants=network-online.target $MEM_UNIT
 
 [Service]
 ExecStart=/usr/bin/python3 $PMH_HOME/dashboard/parmaham_dashboard.py
-Environment=PMH_HOME=$PMH_HOME PMH_ETC=$PMH_ETC PMH_STATE=$PMH_STATE PYTHONUNBUFFERED=1
+Environment=PMH_HOME=$PMH_HOME PMH_ETC=$PMH_ETC PMH_STATE=$PMH_STATE PMH_LOG=$PMH_LOG PYTHONUNBUFFERED=1
 LoadCredential=db.cnf:$MONITOR_CNF
 StateDirectory=parmaham-dashboard
 User=parmaham-web

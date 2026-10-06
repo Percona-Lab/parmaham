@@ -144,6 +144,10 @@ Runs a public dashboard with no login, by design. It shows:
   pool, redo log and checkpoint age, undo history length, row lock waits, and
   `mysqld` memory (VSZ, RSS, and PSS + SwapPSS on one chart), and space on
   the volume that holds the data directory.
+* **HammerDB execution:** a summary of the last completed run (result and
+  % of target, test period, virtual users finished/failed, pacing, versions,
+  error lines), plus a live tail of the current run's HammerDB log; you can
+  switch it to the last completed run.
 * **Operating system:** pressure stall information (CPU, memory and IO
   `some`/`full`), CPU breakdown including steal, load and run queue, memory and
   swap, disk IOPS, throughput and utilization, network, context switches and
@@ -176,7 +180,7 @@ Implementation notes:
 | `/etc/parmaham/mysql-*.cnf` | MySQL credentials (admin 0600, bench 0640 root:parmaham, monitor 0600) |
 | `/opt/parmaham` | installed copy of this repository plus HammerDB |
 | `/var/lib/parmaham` | `capacity.json`, `schema.json`, `status.json`, `results.jsonl` (one line per run), `pace-correction` |
-| `/var/log/parmaham` | `generate.log`, `capacity*.log`, `runs/run-*.log` (newest 200) |
+| `/var/log/parmaham` | `generate.log`, `capacity*.log`, `runs/run-*.log` (newest 200); HammerDB echoes the database password, which is masked before it is written |
 
 | Unit | Purpose |
 |------|---------|

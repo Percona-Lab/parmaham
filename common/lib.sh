@@ -144,6 +144,9 @@ install_hammerdb() {
 # Run a HammerDB CLI Tcl script. PMH_* variables must already be exported.
 # Each invocation gets a clean TMP directory: HammerDB keeps its settings
 # and job history in SQLite files there and we want neither to carry over.
+# HammerDB echoes every setting it changes, including the database password
+# ("Changed tpcc:mysql_pass from x to y"), so its output is masked before it
+# reaches any log.
 hammerdb_cli() {
     local script=$1 tmp rc=0
     tmp="$PMH_STATE/hammerdb-tmp.$$"
@@ -152,10 +155,15 @@ hammerdb_cli() {
     (
         cd "$(hammerdb_dir)"
         export TMP="$tmp" LD_LIBRARY_PATH="$PMH_HOME/hammerdb/lib"
-        ./hammerdbcli auto "$script"
+        ./hammerdbcli auto "$script" 2>&1 | mask_passwords
     ) || rc=$?
     rm -rf "$tmp"
     return $rc
+}
+
+mask_passwords() {
+    sed -u -E -e 's/(_pass(word)? from ).* to .* for /\1*** to *** for /' \
+              -e 's/^Value .* for ([a-z_:]*_pass(word)?) is the same as existing value .*, no change/Value *** for \1 is the same as existing value ***, no change/'
 }
 
 # Run a timed HammerDB test, logging to $2. Prints "NOPM TPM" on success.

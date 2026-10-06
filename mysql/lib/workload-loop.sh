@@ -45,7 +45,7 @@ while true; do
     write_status running iteration "$iteration" started_at "$STARTED" vu "$VU" \
         rampup_min "$WORKLOAD_RAMPUP" duration_min "$WORKLOAD_DURATION" sleep_sec "$WORKLOAD_SLEEP" \
         percent "$WORKLOAD_PERCENT" target_nopm "$TARGET_NOPM" capacity_nopm "$CAP_NOPM" \
-        pace_ms "$PACE_MS" correction "$CORRECTION"
+        pace_ms "$PACE_MS" correction "$CORRECTION" log "runs/$(basename "$LOGFILE")"
     log "iteration $iteration: $VU VU, target $TARGET_NOPM NOPM ($WORKLOAD_PERCENT% of $CAP_NOPM), pace ${PACE_MS}ms, ${WORKLOAD_RAMPUP}+${WORKLOAD_DURATION} min"
 
     export PMH_VU=$VU PMH_RAMPUP=$WORKLOAD_RAMPUP PMH_DURATION=$WORKLOAD_DURATION PMH_PACE_MS=$PACE_MS
@@ -54,7 +54,7 @@ while true; do
         failures=0
         json_kv iteration "$iteration" started_at "$STARTED" finished_at "$(date -u +%FT%TZ)" \
             nopm "$NOPM" tpm "$TPM" target_nopm "$TARGET_NOPM" percent "$WORKLOAD_PERCENT" \
-            vu "$VU" duration_min "$WORKLOAD_DURATION" ok true >> "$RESULTS"
+            vu "$VU" duration_min "$WORKLOAD_DURATION" ok true log "runs/$(basename "$LOGFILE")" >> "$RESULTS"
         log "iteration $iteration: $NOPM NOPM, $TPM TPM (target $TARGET_NOPM)"
 
         # Adjust pacing so the long-term average converges on the target.
@@ -70,7 +70,7 @@ while true; do
         failures=$(( failures + 1 ))
         json_kv iteration "$iteration" started_at "$STARTED" finished_at "$(date -u +%FT%TZ)" \
             target_nopm "$TARGET_NOPM" percent "$WORKLOAD_PERCENT" vu "$VU" ok false \
-            error "no result, see $(basename "$LOGFILE")" >> "$RESULTS"
+            error "no result, see $(basename "$LOGFILE")" log "runs/$(basename "$LOGFILE")" >> "$RESULTS"
         warn "iteration $iteration produced no result (see $LOGFILE)"
         tail -5 "$LOGFILE" >&2 || true
     fi
