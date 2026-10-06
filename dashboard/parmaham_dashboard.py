@@ -296,6 +296,21 @@ def node_info():
     return info
 
 
+def volume_space(path):
+    """Space on the filesystem holding path (used is computed like df)."""
+    if not path:
+        return {}
+    try:
+        st = os.statvfs(path)
+    except OSError:
+        return {}
+    size = st.f_blocks * st.f_frsize
+    avail = st.f_bavail * st.f_frsize
+    used = (st.f_blocks - st.f_bfree) * st.f_frsize
+    return {"vol_size": size, "vol_used": used, "vol_avail": avail,
+            "vol_used_pct": 100.0 * used / (used + avail) if used + avail else 0.0}
+
+
 def filesystem_info(path):
     try:
         st = os.statvfs(path)
@@ -472,6 +487,7 @@ class Sampler(threading.Thread):
                 elif cur_db is None:
                     point["db_up"] = 0
                 point.update(db_process_memory(getattr(self.db_module, "PROCESS", ""), 3 * self.interval))
+                point.update(volume_space(self.db_info.get("datadir")))
                 point = {k: (round(v, 3) if isinstance(v, float) else v) for k, v in point.items()}
                 if "disks" in point:
                     point["disks"] = {n: {k: round(v, 2) for k, v in d.items()} for n, d in point["disks"].items()}

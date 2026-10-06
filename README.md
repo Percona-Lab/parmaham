@@ -142,7 +142,8 @@ Runs a public dashboard with no login, by design. It shows:
   live NOPM/TPM against the target, the result of every run, and recent runs.
 * **Database:** transactions and queries, InnoDB row operations, threads, buffer
   pool, redo log and checkpoint age, undo history length, row lock waits, and
-  `mysqld` memory (VSZ, RSS, and PSS + SwapPSS on one chart).
+  `mysqld` memory (VSZ, RSS, and PSS + SwapPSS on one chart), and space on
+  the volume that holds the data directory.
 * **Operating system:** pressure stall information (CPU, memory and IO
   `some`/`full`), CPU breakdown including steal, load and run queue, memory and
   swap, disk IOPS, throughput and utilization, network, context switches and

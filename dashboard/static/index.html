@@ -193,6 +193,7 @@ footer { color: var(--faint); font-size: 12px; margin-top: 28px; text-align: cen
     <div class="panel"><div class="phead"><h3>Redo log</h3></div><div class="chart" id="c-redo"></div><div class="legend" id="l-redo"></div></div>
     <div class="panel"><div class="phead"><h3>Undo history &amp; lock waits</h3></div><div class="chart" id="c-hll"></div><div class="legend" id="l-hll"></div></div>
     <div class="panel"><div class="phead"><h3><span id="proc-name">Server</span> memory</h3><span class="cur">PSS includes swapped-out share</span></div><div class="chart" id="c-pmem"></div><div class="legend" id="l-pmem"></div></div>
+    <div class="panel"><div class="phead"><h3>Database volume space</h3><span class="cur" id="vol-note"></span></div><div class="chart" id="c-vol"></div><div class="legend" id="l-vol"></div></div>
   </div>
 
   <h2>Operating system <span class="aside" id="os-aside"></span></h2>
@@ -416,6 +417,7 @@ const charts = {
   util: new Chart("c-util", [M("disk_util_max", "Utilization", "--c5", { fill: true })], { fmt: fmtPct, max: 100 }),
   net: new Chart("c-net", [M("net_rx_bytes", "Receive", "--c1"), M("net_tx_bytes", "Transmit", "--c2")], { fmt: mbps }),
   pmem: new Chart("c-pmem", [M("proc_vsz", "VSZ", "--c5"), M("proc_rss", "RSS", "--c1", { fill: true, width: 2 }), M("proc_pss_swap", "PSS + SwapPSS", "--c2", { width: 2 })], { fmt: fmtBytes, empty: "waiting for parmaham-procmem.service…" }),
+  vol: new Chart("c-vol", [M("vol_used", "Used", "--c1", { fill: true, width: 2 }), M("vol_avail", "Available", "--c3"), M("vol_size", "Size", "--c5", { dash: true })], { fmt: fmtBytes, empty: "waiting for database information…" }),
   ctx: new Chart("c-ctx", [M("ctx_switches", "Context switches/s", "--c1"), M("major_faults", "Major faults/s", "--c4"), { name: "Swap pages/s", color: "--c5", get: (p) => p.swap_in_pages == null ? null : p.swap_in_pages + p.swap_out_pages }]),
 };
 
@@ -474,6 +476,8 @@ function renderMetrics() {
     $("t-nopm-f").textContent = `${fmtInt(last.tpm)} TPM · ${fmtNum(last.db_qps)} queries/s`;
     $("psi-now").innerHTML = [["CPU some", last.psi_cpu_some], ["Memory full", last.psi_memory_full], ["IO full", last.psi_io_full]]
       .map(([k, v]) => `<div><div class="k">${k}</div><div class="v num" style="color:${v > 10 ? css("--bad") : v > 1 ? css("--warn") : "inherit"}">${fmtPct(v)}</div></div>`).join("");
+    const fs = info && info.filesystem;
+    $("vol-note").textContent = last.vol_size ? `${fs ? fs.device + " · " + fs.fstype + " · " : ""}${fmtPct(last.vol_used_pct)} used` : "";
     $("os-aside").textContent = `CPU ${fmtPct(last.cpu_busy)} busy · load ${fmtNum(last.load1)} · memory ${fmtBytes(last.mem_used)} of ${fmtBytes(last.mem_total)}`;
     $("db-aside").textContent = last.db_up ? `${fmtInt(last.db_threads_connected)} connections · history list ${fmtInt(last.db_history_list_length)}` : "database not reachable";
   }
