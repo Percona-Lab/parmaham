@@ -1,0 +1,9 @@
+# /etc/parmaham/parmaham.conf - local overrides for Parma Ham.
+#
+# Any setting from config/parmaham.conf.defaults can be overridden here.
+# Scripts also write values passed as command line flags (for example
+# database-generate.sh --warehouses 500) back to this file.
+
+#WAREHOUSES=200
+#WORKLOAD_PERCENT=50
+#DASHBOARD_PORT=80

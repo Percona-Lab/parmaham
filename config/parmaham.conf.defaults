@@ -1,0 +1,57 @@
+# Built-in defaults. Do not edit: override values in /etc/parmaham/parmaham.conf
+# (see config/parmaham.conf.example) or with command line flags.
+
+# Database type, matches a directory in the project (mysql, ...)
+PMH_DB=mysql
+
+# --- Percona Server for MySQL ----------------------------------------------
+# percona-release repository to install from
+PS_REPO=ps-97-lts
+# Fraction of RAM for the InnoDB buffer pool (percent). HammerDB runs on the
+# same node, so leave headroom for its virtual users.
+MYSQL_BUFFER_POOL_PCT=60
+# 1 = full durability (realistic), 2 = flush redo once per second
+MYSQL_FLUSH_LOG_AT_TRX_COMMIT=1
+# Binary logging: off by default so a months-long run cannot fill the disk.
+MYSQL_BINLOG=0
+MYSQL_BINLOG_EXPIRE_SECONDS=21600
+
+# --- Data generation --------------------------------------------------------
+WAREHOUSES=200
+# Virtual users used to load data (0 = number of CPUs)
+BUILD_VU=0
+# HammerDB order_line partitioning (recommended above ~200 warehouses)
+PARTITION=false
+
+# --- Capacity measurement ---------------------------------------------------
+CAPACITY_VU=64
+CAPACITY_RAMPUP=15
+CAPACITY_DURATION=30
+
+# --- Permanent workload -----------------------------------------------------
+# Percent of measured capacity (NOPM) to run
+WORKLOAD_PERCENT=50
+# Virtual users (0 = same as CAPACITY_VU)
+WORKLOAD_VU=0
+# Each iteration: rampup minutes, measured minutes, then sleep seconds
+WORKLOAD_RAMPUP=1
+WORKLOAD_DURATION=60
+WORKLOAD_SLEEP=0
+
+# --- Purge ------------------------------------------------------------------
+PURGE_RETENTION_HOURS=24
+PURGE_INTERVAL_MIN=15
+# Orders deleted per transaction per district
+PURGE_BATCH=500
+
+# --- Dashboard --------------------------------------------------------------
+DASHBOARD_BIND=0.0.0.0
+DASHBOARD_PORT=80
+# Metric sampling interval (seconds) and in-memory history (minutes)
+DASHBOARD_INTERVAL=5
+DASHBOARD_HISTORY_MIN=60
+
+# --- Tool versions ----------------------------------------------------------
+HAMMERDB_VERSION=6.0
+# Oracle MySQL client library version HammerDB's mysqltcl is loaded against
+MYSQL_CLIENT_LIB_VERSION=8.4.7

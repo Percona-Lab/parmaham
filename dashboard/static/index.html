@@ -1,0 +1,615 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Parma Ham</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23d9485f'/%3E%3Cpath d='M7 22 L13 14 L18 18 L25 9' stroke='white' stroke-width='3' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+<style>
+:root {
+  --bg: #f4f5f7; --panel: #ffffff; --panel-2: #f8f9fb; --border: #e3e6ea;
+  --text: #1c2430; --muted: #667085; --faint: #98a2b3; --grid: #edf0f3;
+  --accent: #d9485f; --ok: #12a150; --warn: #d98a00; --bad: #d92d20; --info: #2f6fde;
+  --c1: #2f6fde; --c2: #e8833a; --c3: #12a150; --c4: #d92d20; --c5: #8a5cf6; --c6: #0e9f9f; --c7: #c2418f;
+  --shadow: 0 1px 2px rgba(16,24,40,.06);
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f1218; --panel: #171b23; --panel-2: #1c212b; --border: #272d38;
+    --text: #e6e9ef; --muted: #98a2b3; --faint: #667085; --grid: #232934;
+    --accent: #f0657a; --ok: #3ccf7a; --warn: #f2b33d; --bad: #f97066; --info: #6a9cff;
+    --c1: #6a9cff; --c2: #f5a35c; --c3: #3ccf7a; --c4: #f97066; --c5: #a989fa; --c6: #3cc9c9; --c7: #ec7ab8;
+    --shadow: none; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f1218; --panel: #171b23; --panel-2: #1c212b; --border: #272d38;
+  --text: #e6e9ef; --muted: #98a2b3; --faint: #667085; --grid: #232934;
+  --accent: #f0657a; --ok: #3ccf7a; --warn: #f2b33d; --bad: #f97066; --info: #6a9cff;
+  --c1: #6a9cff; --c2: #f5a35c; --c3: #3ccf7a; --c4: #f97066; --c5: #a989fa; --c6: #3cc9c9; --c7: #ec7ab8;
+  --shadow: none; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--bg); color: var(--text);
+  font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+.num, .mono { font-variant-numeric: tabular-nums; }
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12.5px; }
+.wrap { max-width: 1480px; margin: 0 auto; padding: 0 16px 40px; }
+
+header {
+  display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+  padding: 18px 0 14px;
+}
+.brand { display: flex; align-items: center; gap: 10px; margin-right: auto; }
+.logo { width: 34px; height: 34px; border-radius: 8px; background: var(--accent); display: grid; place-items: center; }
+.brand h1 { font-size: 18px; margin: 0; letter-spacing: .2px; }
+.brand .sub { color: var(--muted); font-size: 12.5px; }
+.host { color: var(--muted); font-size: 13px; }
+.host b { color: var(--text); font-weight: 600; }
+.pill {
+  display: inline-flex; align-items: center; gap: 7px; padding: 4px 11px; border-radius: 999px;
+  font-weight: 600; font-size: 12.5px; letter-spacing: .3px; text-transform: uppercase;
+  background: var(--panel); border: 1px solid var(--border);
+}
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--faint); }
+.pill.ok .dot { background: var(--ok); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 25%, transparent); }
+.pill.warn .dot { background: var(--warn); }
+.pill.bad .dot { background: var(--bad); }
+.pill.info .dot { background: var(--info); }
+.tools { display: flex; gap: 6px; align-items: center; }
+.seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: var(--panel); }
+.seg button {
+  border: 0; background: transparent; color: var(--muted); padding: 5px 10px; font: inherit; font-size: 12.5px; cursor: pointer;
+}
+.seg button.on { background: var(--panel-2); color: var(--text); font-weight: 600; }
+.iconbtn { border: 1px solid var(--border); background: var(--panel); color: var(--muted); border-radius: 8px; padding: 5px 9px; cursor: pointer; font: inherit; font-size: 12.5px; }
+
+.banner { display: none; margin: 0 0 14px; padding: 10px 14px; border-radius: 10px; border: 1px solid color-mix(in srgb, var(--bad) 40%, var(--border)); background: color-mix(in srgb, var(--bad) 10%, var(--panel)); }
+
+.tiles { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 12px; }
+.tile, .panel {
+  background: var(--panel); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow);
+}
+.tile { padding: 13px 15px 12px; min-width: 0; }
+.tile .label { color: var(--muted); font-size: 12px; font-weight: 500; }
+.tile .value { font-size: 26px; font-weight: 650; margin-top: 2px; line-height: 1.15; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tile .value small { font-size: 13px; color: var(--muted); font-weight: 500; margin-left: 3px; }
+.tile .foot { color: var(--muted); font-size: 12px; margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.up { color: var(--ok); } .down { color: var(--bad); } .neutral { color: var(--muted); }
+
+.progress { margin-top: 12px; padding: 13px 15px; display: grid; grid-template-columns: auto 1fr auto; gap: 14px; align-items: center; }
+.progress .what { font-weight: 600; white-space: nowrap; }
+.bar { position: relative; height: 10px; border-radius: 6px; background: var(--panel-2); border: 1px solid var(--border); overflow: hidden; }
+.bar .ramp, .bar .meas { position: absolute; top: 0; bottom: 0; }
+.bar .ramp { background: color-mix(in srgb, var(--warn) 55%, transparent); }
+.bar .meas { background: var(--info); }
+.bar .tick { position: absolute; top: -1px; bottom: -1px; width: 2px; background: var(--panel); }
+.progress .eta { color: var(--muted); white-space: nowrap; font-size: 13px; }
+
+h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .8px; color: var(--muted); margin: 26px 0 10px; font-weight: 650; display: flex; align-items: baseline; gap: 10px; }
+h2 .aside { text-transform: none; letter-spacing: 0; font-weight: 400; color: var(--faint); font-size: 12.5px; }
+
+.grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.grid.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.panel { padding: 12px 14px 10px; min-width: 0; }
+.panel h3 { margin: 0; font-size: 13.5px; font-weight: 600; }
+.panel .phead { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; margin-bottom: 6px; }
+.panel .phead .cur { color: var(--muted); font-size: 12px; white-space: nowrap; }
+.chart { position: relative; height: 170px; }
+.chart.tall { height: 230px; }
+.chart canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 6px; font-size: 12px; color: var(--muted); }
+.legend span { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+.legend i { width: 10px; height: 3px; border-radius: 2px; display: inline-block; }
+.legend i.dash { height: 0; border-top: 2px dashed; width: 12px; }
+.legend b { color: var(--text); font-weight: 600; }
+.tip {
+  position: absolute; pointer-events: none; z-index: 5; background: var(--panel); border: 1px solid var(--border);
+  border-radius: 8px; padding: 6px 9px; font-size: 12px; box-shadow: 0 4px 16px rgba(0,0,0,.15); white-space: nowrap; display: none;
+}
+.tip .t { color: var(--muted); margin-bottom: 2px; }
+.empty { position: absolute; inset: 0; display: grid; place-items: center; color: var(--faint); font-size: 12.5px; }
+
+.psi { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-bottom: 8px; }
+.psi div { background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px; padding: 6px 9px; }
+.psi .k { font-size: 11.5px; color: var(--muted); }
+.psi .v { font-weight: 650; font-size: 15px; }
+
+table.kv { width: 100%; border-collapse: collapse; font-size: 13px; }
+table.kv td { padding: 5px 0; border-top: 1px solid var(--grid); vertical-align: top; }
+table.kv tr:first-child td { border-top: 0; }
+table.kv td:first-child { color: var(--muted); width: 42%; padding-right: 10px; }
+table.kv td:last-child { word-break: break-word; }
+.runs { width: 100%; border-collapse: collapse; font-size: 13px; }
+.runs th { text-align: left; color: var(--muted); font-weight: 500; font-size: 12px; padding: 4px 8px 6px 0; border-bottom: 1px solid var(--border); }
+.runs td { padding: 5px 8px 5px 0; border-top: 1px solid var(--grid); white-space: nowrap; }
+.runs td.r, .runs th.r { text-align: right; }
+.scroll { overflow-x: auto; }
+footer { color: var(--faint); font-size: 12px; margin-top: 28px; text-align: center; }
+
+@media (max-width: 1200px) { .tiles { grid-template-columns: repeat(3, minmax(0, 1fr)); } .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 760px) {
+  .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .grid, .grid.two { grid-template-columns: minmax(0, 1fr); }
+  .progress { grid-template-columns: 1fr; gap: 8px; }
+  .tile .value { font-size: 22px; }
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="brand">
+      <div class="logo"><svg width="20" height="20" viewBox="0 0 32 32"><path d="M5 23 L12 14 L18 19 L27 8" stroke="white" stroke-width="3.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+      <div>
+        <h1>Parma Ham</h1>
+        <div class="sub">Permanent HammerDB benchmark runner</div>
+      </div>
+    </div>
+    <div class="host" id="host">&nbsp;</div>
+    <span class="pill" id="state"><span class="dot"></span><span>loading</span></span>
+    <div class="tools">
+      <div class="seg" id="range">
+        <button data-min="5">5m</button><button data-min="15" class="on">15m</button><button data-min="60">1h</button>
+      </div>
+      <button class="iconbtn" id="theme" title="Toggle light / dark">◐</button>
+    </div>
+  </header>
+
+  <div class="banner" id="banner"></div>
+
+  <section class="tiles">
+    <div class="tile"><div class="label">Live throughput</div><div class="value num" id="t-nopm">–</div><div class="foot" id="t-nopm-f">new orders per minute</div></div>
+    <div class="tile"><div class="label">Target</div><div class="value num" id="t-target">–</div><div class="foot" id="t-target-f">&nbsp;</div></div>
+    <div class="tile"><div class="label">Last completed run</div><div class="value num" id="t-last">–</div><div class="foot" id="t-last-f">&nbsp;</div></div>
+    <div class="tile"><div class="label">Measured capacity</div><div class="value num" id="t-cap">–</div><div class="foot" id="t-cap-f">&nbsp;</div></div>
+    <div class="tile"><div class="label">Runs completed</div><div class="value num" id="t-runs">–</div><div class="foot" id="t-runs-f">&nbsp;</div></div>
+    <div class="tile"><div class="label">Running for</div><div class="value num" id="t-uptime">–</div><div class="foot" id="t-uptime-f">&nbsp;</div></div>
+  </section>
+
+  <div class="panel progress" id="progress">
+    <div class="what" id="p-what">–</div>
+    <div class="bar" id="p-bar"><div class="ramp"></div><div class="meas"></div></div>
+    <div class="eta num" id="p-eta"></div>
+  </div>
+
+  <h2>Benchmark <span class="aside" id="bench-aside"></span></h2>
+  <div class="grid two">
+    <div class="panel"><div class="phead"><h3>Live throughput</h3><span class="cur">sampled every <span id="ivl">–</span>s</span></div><div class="chart tall" id="c-tput"></div><div class="legend" id="l-tput"></div></div>
+    <div class="panel"><div class="phead"><h3>Result of every run</h3><span class="cur" id="hist-span"></span></div><div class="chart tall" id="c-hist"></div><div class="legend" id="l-hist"></div></div>
+  </div>
+
+  <h2>Database <span class="aside" id="db-aside"></span></h2>
+  <div class="grid">
+    <div class="panel"><div class="phead"><h3>Transactions &amp; queries</h3></div><div class="chart" id="c-qps"></div><div class="legend" id="l-qps"></div></div>
+    <div class="panel"><div class="phead"><h3>InnoDB row operations</h3></div><div class="chart" id="c-rows"></div><div class="legend" id="l-rows"></div></div>
+    <div class="panel"><div class="phead"><h3>Threads</h3></div><div class="chart" id="c-thr"></div><div class="legend" id="l-thr"></div></div>
+    <div class="panel"><div class="phead"><h3>Buffer pool</h3></div><div class="chart" id="c-bp"></div><div class="legend" id="l-bp"></div></div>
+    <div class="panel"><div class="phead"><h3>Redo log</h3></div><div class="chart" id="c-redo"></div><div class="legend" id="l-redo"></div></div>
+    <div class="panel"><div class="phead"><h3>Undo history &amp; lock waits</h3></div><div class="chart" id="c-hll"></div><div class="legend" id="l-hll"></div></div>
+  </div>
+
+  <h2>Operating system <span class="aside" id="os-aside"></span></h2>
+  <div class="grid">
+    <div class="panel"><div class="phead"><h3>Pressure stall information</h3><span class="cur">% of time tasks stalled</span></div>
+      <div class="psi" id="psi-now"></div>
+      <div class="chart" id="c-psi"></div><div class="legend" id="l-psi"></div></div>
+    <div class="panel"><div class="phead"><h3>CPU</h3></div><div class="chart" id="c-cpu"></div><div class="legend" id="l-cpu"></div></div>
+    <div class="panel"><div class="phead"><h3>Load &amp; run queue</h3></div><div class="chart" id="c-load"></div><div class="legend" id="l-load"></div></div>
+    <div class="panel"><div class="phead"><h3>Memory</h3></div><div class="chart" id="c-mem"></div><div class="legend" id="l-mem"></div></div>
+    <div class="panel"><div class="phead"><h3>Disk operations</h3></div><div class="chart" id="c-iops"></div><div class="legend" id="l-iops"></div></div>
+    <div class="panel"><div class="phead"><h3>Disk throughput</h3></div><div class="chart" id="c-dbw"></div><div class="legend" id="l-dbw"></div></div>
+    <div class="panel"><div class="phead"><h3>Disk utilization</h3><span class="cur">busiest device</span></div><div class="chart" id="c-util"></div><div class="legend" id="l-util"></div></div>
+    <div class="panel"><div class="phead"><h3>Network</h3></div><div class="chart" id="c-net"></div><div class="legend" id="l-net"></div></div>
+    <div class="panel"><div class="phead"><h3>Context switches &amp; faults</h3></div><div class="chart" id="c-ctx"></div><div class="legend" id="l-ctx"></div></div>
+  </div>
+
+  <h2>Recent runs</h2>
+  <div class="panel scroll"><table class="runs" id="runs"></table></div>
+
+  <h2>Environment</h2>
+  <div class="grid">
+    <div class="panel"><div class="phead"><h3>Node</h3></div><table class="kv" id="i-node"></table></div>
+    <div class="panel"><div class="phead"><h3>Database</h3></div><table class="kv" id="i-db"></table></div>
+    <div class="panel"><div class="phead"><h3>Benchmark &amp; purge</h3></div><table class="kv" id="i-bench"></table></div>
+  </div>
+
+  <footer>Parma Ham · HammerDB TPROC-C · this page refreshes automatically</footer>
+</div>
+
+<script>
+"use strict";
+// ---------------------------------------------------------------------------
+// formatting
+// ---------------------------------------------------------------------------
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+function fmtNum(v, digits) {
+  if (v == null || isNaN(v)) return "–";
+  const a = Math.abs(v);
+  if (a >= 1e9) return (v / 1e9).toFixed(a >= 1e10 ? 1 : 2) + "B";
+  if (a >= 1e6) return (v / 1e6).toFixed(a >= 1e7 ? 1 : 2) + "M";
+  if (a >= 1e4) return (v / 1e3).toFixed(a >= 1e5 ? 0 : 1) + "k";
+  if (digits != null) return v.toFixed(digits);
+  if (a >= 100) return Math.round(v).toLocaleString();
+  if (a >= 10) return v.toFixed(1);
+  return v.toFixed(a === 0 ? 0 : 2);
+}
+function fmtInt(v) { return v == null || isNaN(v) ? "–" : Math.round(v).toLocaleString(); }
+function fmtBytes(v, suffix = "") {
+  if (v == null || isNaN(v)) return "–";
+  const u = ["B", "KB", "MB", "GB", "TB", "PB"]; let i = 0; let x = Math.abs(v);
+  while (x >= 1024 && i < u.length - 1) { x /= 1024; i++; }
+  return (v < 0 ? "-" : "") + (x >= 100 || i === 0 ? x.toFixed(0) : x.toFixed(1)) + " " + u[i] + suffix;
+}
+const fmtPct = (v) => v == null || isNaN(v) ? "–" : (v >= 10 ? v.toFixed(0) : v.toFixed(1)) + "%";
+function fmtDur(sec) {
+  if (sec == null || isNaN(sec)) return "–";
+  sec = Math.max(0, Math.round(sec));
+  const d = Math.floor(sec / 86400), h = Math.floor(sec % 86400 / 3600), m = Math.floor(sec % 3600 / 60), s = sec % 60;
+  if (d) return `${d}d ${h}h`;
+  if (h) return `${h}h ${m}m`;
+  if (m) return `${m}m ${String(s).padStart(2, "0")}s`;
+  return `${s}s`;
+}
+const clock = (sec) => { sec = Math.max(0, Math.round(sec)); const m = Math.floor(sec / 60), s = sec % 60; return `${m}:${String(s).padStart(2, "0")}`; };
+const parseTs = (s) => s ? Date.parse(s) / 1000 : null;
+function fmtWhen(ts) {
+  if (!ts) return "–";
+  const d = new Date(ts * 1000), now = new Date();
+  const t = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  if (d.toDateString() === now.toDateString()) return t;
+  return d.toLocaleDateString([], { month: "short", day: "numeric" }) + " " + t;
+}
+const ago = (ts) => ts ? fmtDur(Date.now() / 1000 - ts) + " ago" : "–";
+const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+
+// ---------------------------------------------------------------------------
+// canvas line chart
+// ---------------------------------------------------------------------------
+class Chart {
+  constructor(id, series, opts = {}) {
+    this.box = $(id); this.legend = $("l-" + id.slice(2)); this.series = series; this.opts = opts;
+    this.canvas = document.createElement("canvas"); this.box.appendChild(this.canvas);
+    this.tip = document.createElement("div"); this.tip.className = "tip"; this.box.appendChild(this.tip);
+    this.emptyEl = document.createElement("div"); this.emptyEl.className = "empty"; this.box.appendChild(this.emptyEl);
+    this.data = []; this.hover = null;
+    this.canvas.addEventListener("mousemove", (e) => { this.hover = e.offsetX; this.draw(); });
+    this.canvas.addEventListener("mouseleave", () => { this.hover = null; this.draw(); });
+    new ResizeObserver(() => this.draw()).observe(this.box);
+  }
+  set(data, x0, x1) { this.data = data; this.x0 = x0; this.x1 = x1; this.draw(); this.renderLegend(); }
+  value(s, p) { const v = typeof s.get === "function" ? s.get(p) : p[s.key]; return v == null || isNaN(v) ? null : v; }
+  renderLegend() {
+    if (!this.legend) return;
+    const last = this.data.length ? this.data[this.data.length - 1] : null;
+    const fmt = this.opts.fmt || fmtNum;
+    this.legend.innerHTML = this.series.map((s) => {
+      const v = last ? this.value(s, last) : null;
+      return `<span><i class="${s.dash ? "dash" : ""}" style="${s.dash ? "border-color" : "background"}:${css(s.color)}"></i>${esc(s.name)} <b class="num">${v == null ? "–" : fmt(v)}</b></span>`;
+    }).join("");
+  }
+  draw() {
+    const W = this.box.clientWidth, H = this.box.clientHeight; if (!W || !H) return;
+    const dpr = window.devicePixelRatio || 1;
+    if (this.canvas.width !== Math.round(W * dpr) || this.canvas.height !== Math.round(H * dpr)) {
+      this.canvas.width = Math.round(W * dpr); this.canvas.height = Math.round(H * dpr);
+    }
+    const g = this.canvas.getContext("2d"); g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, W, H);
+    const fmt = this.opts.fmt || fmtNum, axisFmt = this.opts.axisFmt || fmt;
+    const data = this.data;
+    this.emptyEl.textContent = data.length < 2 ? (this.opts.empty || "collecting data…") : "";
+    if (data.length < 2) { this.tip.style.display = "none"; return; }
+
+    const x0 = this.x0 ?? data[0].t, x1 = this.x1 ?? data[data.length - 1].t;
+    let ymax = this.opts.max ?? 0;
+    if (this.opts.max == null) for (const p of data) for (const s of this.series) { const v = this.value(s, p); if (v != null) ymax = Math.max(ymax, s.stack ? 0 : v); }
+    if (this.opts.stacked) for (const p of data) { let sum = 0; for (const s of this.series) sum += this.value(s, p) || 0; ymax = Math.max(ymax, sum); }
+    if (this.opts.minMax) ymax = Math.max(ymax, this.opts.minMax);
+    const ticks = niceTicks(ymax || 1, 4); ymax = ticks[ticks.length - 1];
+
+    g.font = "11px system-ui, sans-serif";
+    const padL = Math.max(...ticks.map((t) => g.measureText(axisFmt(t)).width)) + 10, padR = 6, padT = 6, padB = 18;
+    const pw = W - padL - padR, ph = H - padT - padB;
+    const X = (t) => padL + (x1 === x0 ? 0 : (t - x0) / (x1 - x0) * pw);
+    const Y = (v) => padT + ph - (v / ymax) * ph;
+
+    // grid & axes
+    g.strokeStyle = css("--grid"); g.lineWidth = 1; g.fillStyle = css("--faint");
+    g.textAlign = "right"; g.textBaseline = "middle";
+    for (const t of ticks) { const y = Math.round(Y(t)) + .5; g.beginPath(); g.moveTo(padL, y); g.lineTo(W - padR, y); g.stroke(); g.fillText(axisFmt(t), padL - 6, y); }
+    g.textAlign = "center"; g.textBaseline = "alphabetic";
+    const span = x1 - x0, nlab = Math.max(2, Math.floor(pw / 90));
+    const step = niceTimeStep(span / nlab);
+    for (let t = Math.ceil(x0 / step) * step; t <= x1; t += step) {
+      const d = new Date(t * 1000);
+      const lab = span > 2 * 86400 ? d.toLocaleDateString([], { month: "short", day: "numeric" })
+        : d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+      g.fillText(lab, X(t), H - 4);
+    }
+
+    // series
+    const base = new Array(data.length).fill(0);
+    this.series.forEach((s, si) => {
+      const color = css(s.color);
+      const pts = data.map((p, i) => { const v = this.value(s, p); if (v == null) return null; const y = this.opts.stacked ? base[i] + v : v; return [X(p.t), Y(y), y]; });
+      const gapLimit = this.opts.gap ?? Infinity;
+      g.lineWidth = s.width || 1.6; g.strokeStyle = color; g.setLineDash(s.dash ? [5, 4] : []);
+      g.beginPath(); let pen = false, lastT = null;
+      pts.forEach((pt, i) => {
+        if (!pt || (lastT != null && data[i].t - lastT > gapLimit)) pen = false;
+        if (!pt) return;
+        if (pen) g.lineTo(pt[0], pt[1]); else g.moveTo(pt[0], pt[1]);
+        pen = true; lastT = data[i].t;
+      });
+      g.stroke(); g.setLineDash([]);
+      if (s.fill || this.opts.stacked) {
+        g.globalAlpha = this.opts.stacked ? .35 : .12; g.fillStyle = color; g.beginPath();
+        let started = false;
+        pts.forEach((pt, i) => { if (!pt) return; if (!started) { g.moveTo(pt[0], Y(base[i])); started = true; } g.lineTo(pt[0], pt[1]); });
+        for (let i = pts.length - 1; i >= 0; i--) if (pts[i]) g.lineTo(pts[i][0], Y(base[i]));
+        g.closePath(); g.fill(); g.globalAlpha = 1;
+      }
+      if (s.points) {
+        g.fillStyle = color;
+        pts.forEach((pt) => { if (pt) { g.beginPath(); g.arc(pt[0], pt[1], data.length > 300 ? 1.5 : 2.6, 0, 7); g.fill(); } });
+      }
+      if (this.opts.stacked) data.forEach((p, i) => { base[i] += this.value(s, p) || 0; });
+    });
+
+    // hover
+    if (this.hover != null && this.hover >= padL) {
+      const t = x0 + (this.hover - padL) / pw * (x1 - x0);
+      let best = 0; for (let i = 1; i < data.length; i++) if (Math.abs(data[i].t - t) < Math.abs(data[best].t - t)) best = i;
+      const p = data[best], x = X(p.t);
+      g.strokeStyle = css("--faint"); g.lineWidth = 1; g.beginPath(); g.moveTo(Math.round(x) + .5, padT); g.lineTo(Math.round(x) + .5, padT + ph); g.stroke();
+      const head = this.opts.tipTitle ? this.opts.tipTitle(p) : new Date(p.t * 1000).toLocaleTimeString();
+      this.tip.innerHTML = `<div class="t">${esc(head)}</div>` + this.series.map((s) =>
+        `<div><span style="color:${css(s.color)}">●</span> ${esc(s.name)}: <b class="num">${(() => { const v = this.value(s, p); return v == null ? "–" : fmt(v); })()}</b></div>`).join("");
+      this.tip.style.display = "block";
+      const tw = this.tip.offsetWidth;
+      this.tip.style.left = (x + 12 + tw > W ? x - tw - 12 : x + 12) + "px"; this.tip.style.top = "4px";
+    } else this.tip.style.display = "none";
+  }
+}
+function niceTicks(max, n) {
+  const raw = max / n, mag = Math.pow(10, Math.floor(Math.log10(raw)));
+  const step = [1, 2, 2.5, 5, 10].map((m) => m * mag).find((s) => s >= raw) || 10 * mag;
+  const out = []; for (let v = 0; v <= max + step * 0.999; v += step) out.push(+v.toFixed(10));
+  if (out.length < 2) out.push(step);
+  return out;
+}
+function niceTimeStep(sec) {
+  const steps = [10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600, 7200, 10800, 21600, 43200, 86400, 172800, 604800, 2592000];
+  return steps.find((s) => s >= sec) || steps[steps.length - 1];
+}
+
+// ---------------------------------------------------------------------------
+// charts
+// ---------------------------------------------------------------------------
+const M = (key, name, color, extra = {}) => ({ key, name, color, ...extra });
+const mbps = (v) => fmtBytes(v, "/s");
+const charts = {
+  tput: new Chart("c-tput", [M("nopm", "NOPM", "--c1", { fill: true, width: 2 }), M("tpm", "TPM", "--c2"), { name: "Target NOPM", color: "--c4", dash: true, get: () => targetNopm }], { gap: 30 }),
+  hist: new Chart("c-hist", [M("nopm", "NOPM", "--c1", { points: true, width: 1.4 }), M("target_nopm", "Target", "--c4", { dash: true }), M("tpm", "TPM", "--c2", { width: 1 })],
+    { empty: "no completed runs yet", tipTitle: (p) => `run ${p.iteration} · ${new Date(p.t * 1000).toLocaleString()}` }),
+  qps: new Chart("c-qps", [M("db_tps", "Commits+rollbacks/s", "--c1", { fill: true }), M("db_qps", "Queries/s", "--c2")]),
+  rows: new Chart("c-rows", [M("db_rows_read", "Read", "--c1"), M("db_rows_inserted", "Inserted", "--c3"), M("db_rows_updated", "Updated", "--c2"), M("db_rows_deleted", "Deleted", "--c4")]),
+  thr: new Chart("c-thr", [M("db_threads_running", "Running", "--c1", { fill: true }), M("db_threads_connected", "Connected", "--c5")]),
+  bp: new Chart("c-bp", [M("db_bp_hit_pct", "Hit ratio", "--c3"), M("db_bp_dirty_pct", "Dirty pages", "--c2"), { name: "Free pages", color: "--c5", get: (p) => p.db_bp_pages_total ? 100 * p.db_bp_pages_free / p.db_bp_pages_total : null }], { fmt: fmtPct, max: 100 }),
+  redo: new Chart("c-redo", [M("db_redo_written_bytes", "Redo written/s", "--c1", { fill: true }), M("db_checkpoint_age_bytes", "Checkpoint age", "--c2")], { fmt: fmtBytes }),
+  hll: new Chart("c-hll", [M("db_history_list_length", "History list length", "--c5", { fill: true }), M("db_row_lock_waits", "Row lock waits/s", "--c4")]),
+  psi: new Chart("c-psi", [M("psi_cpu_some", "CPU some", "--c1"), M("psi_memory_some", "Mem some", "--c5"), M("psi_memory_full", "Mem full", "--c7", { dash: true }), M("psi_io_some", "IO some", "--c2"), M("psi_io_full", "IO full", "--c4", { dash: true })], { fmt: fmtPct, minMax: 5 }),
+  cpu: new Chart("c-cpu", [M("cpu_user", "User", "--c1"), { name: "System", color: "--c2", get: (p) => p.cpu_system == null ? null : p.cpu_system + p.cpu_irq + p.cpu_softirq }, M("cpu_iowait", "IO wait", "--c4"), M("cpu_steal", "Steal", "--c5"), M("cpu_nice", "Nice", "--c6")], { fmt: fmtPct, stacked: true, max: 100 }),
+  load: new Chart("c-load", [M("load1", "Load 1m", "--c1", { fill: true }), M("procs_running", "Runnable", "--c3"), M("procs_blocked", "Blocked (D)", "--c4")]),
+  mem: new Chart("c-mem", [M("mem_used", "Used", "--c1", { fill: true }), M("mem_cached", "Page cache", "--c3"), M("mem_dirty", "Dirty", "--c2"), M("swap_used", "Swap used", "--c4")], { fmt: fmtBytes }),
+  iops: new Chart("c-iops", [M("disk_reads", "Reads/s", "--c1"), M("disk_writes", "Writes/s", "--c2")]),
+  dbw: new Chart("c-dbw", [M("disk_read_bytes", "Read", "--c1"), M("disk_write_bytes", "Write", "--c2")], { fmt: mbps }),
+  util: new Chart("c-util", [M("disk_util_max", "Utilization", "--c5", { fill: true })], { fmt: fmtPct, max: 100 }),
+  net: new Chart("c-net", [M("net_rx_bytes", "Receive", "--c1"), M("net_tx_bytes", "Transmit", "--c2")], { fmt: mbps }),
+  ctx: new Chart("c-ctx", [M("ctx_switches", "Context switches/s", "--c1"), M("major_faults", "Major faults/s", "--c4"), { name: "Swap pages/s", color: "--c5", get: (p) => p.swap_in_pages == null ? null : p.swap_in_pages + p.swap_out_pages }]),
+};
+
+// ---------------------------------------------------------------------------
+// state & polling
+// ---------------------------------------------------------------------------
+let samples = [], lastT = 0, rangeMin = 15, targetNopm = null, info = null, status = null, results = [];
+try { const r = localStorage.getItem("pmh-range"); if (r) rangeMin = +r; } catch (e) {}
+try { const th = localStorage.getItem("pmh-theme"); if (th) document.documentElement.dataset.theme = th; } catch (e) {}
+document.querySelectorAll("#range button").forEach((b) => {
+  b.classList.toggle("on", +b.dataset.min === rangeMin);
+  b.onclick = () => {
+    rangeMin = +b.dataset.min; try { localStorage.setItem("pmh-range", rangeMin); } catch (e) {}
+    document.querySelectorAll("#range button").forEach((x) => x.classList.toggle("on", x === b)); renderMetrics();
+  };
+});
+$("theme").onclick = () => {
+  const dark = document.documentElement.dataset.theme ? document.documentElement.dataset.theme === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
+  const next = dark ? "light" : "dark"; document.documentElement.dataset.theme = next;
+  try { localStorage.setItem("pmh-theme", next); } catch (e) {}
+  Object.values(charts).forEach((c) => { c.draw(); c.renderLegend(); });
+};
+
+async function getJSON(url) { const r = await fetch(url, { cache: "no-store" }); if (!r.ok) throw new Error(url + ": " + r.status); return r.json(); }
+
+async function pollMetrics() {
+  try {
+    const d = await getJSON("/api/metrics?since=" + lastT);
+    if (d.samples.length) { samples.push(...d.samples); lastT = d.samples[d.samples.length - 1].t; }
+    const keep = d.now - 3700; while (samples.length && samples[0].t < keep) samples.shift();
+    $("ivl").textContent = d.interval;
+    connection(true);
+    renderMetrics();
+  } catch (e) { connection(false); }
+}
+function renderMetrics() {
+  const now = samples.length ? samples[samples.length - 1].t : Date.now() / 1000;
+  const x0 = now - rangeMin * 60;
+  const view = samples.filter((p) => p.t >= x0);
+  for (const [k, c] of Object.entries(charts)) if (k !== "hist") c.set(view, Math.max(x0, view.length ? view[0].t : x0), now);
+  const last = samples[samples.length - 1];
+  if (last) {
+    $("t-nopm").innerHTML = fmtInt(last.nopm) + "<small>NOPM</small>";
+    $("t-nopm-f").textContent = `${fmtInt(last.tpm)} TPM · ${fmtNum(last.db_qps)} queries/s`;
+    $("psi-now").innerHTML = [["CPU some", last.psi_cpu_some], ["Memory full", last.psi_memory_full], ["IO full", last.psi_io_full]]
+      .map(([k, v]) => `<div><div class="k">${k}</div><div class="v num" style="color:${v > 10 ? css("--bad") : v > 1 ? css("--warn") : "inherit"}">${fmtPct(v)}</div></div>`).join("");
+    $("os-aside").textContent = `CPU ${fmtPct(last.cpu_busy)} busy · load ${fmtNum(last.load1)} · memory ${fmtBytes(last.mem_used)} of ${fmtBytes(last.mem_total)}`;
+    $("db-aside").textContent = last.db_up ? `${fmtInt(last.db_threads_connected)} connections · history list ${fmtInt(last.db_history_list_length)}` : "database not reachable";
+  }
+}
+function connection(ok) {
+  if (!ok) { banner("Dashboard server not reachable — retrying…"); }
+  else if (!status || !status.db_error) banner(null);
+}
+function banner(msg) { const b = $("banner"); b.style.display = msg ? "block" : "none"; b.textContent = msg || ""; }
+
+async function pollStatus() {
+  try { status = await getJSON("/api/status"); renderStatus(); } catch (e) { connection(false); }
+}
+async function pollInfo() {
+  try { info = await getJSON("/api/info"); renderInfo(); renderStatus(); } catch (e) {}
+}
+async function pollResults() {
+  try {
+    results = (await getJSON("/api/results?limit=2000")).results;
+    const pts = results.filter((r) => r.ok).map((r) => ({ ...r, t: parseTs(r.finished_at) }));
+    charts.hist.set(pts, pts.length ? pts[0].t : null, pts.length ? pts[pts.length - 1].t : null);
+    if (pts.length) $("hist-span").textContent = `${pts.length} runs since ${fmtWhen(pts[0].t)}`;
+    renderRuns();
+  } catch (e) {}
+}
+
+const STATES = {
+  running: ["Running", "ok"], sleeping: ["Sleeping", "info"], capacity: ["Measuring capacity", "info"],
+  stopped: ["Stopped", "warn"], idle: ["Idle", "warn"], error: ["Error", "bad"], "not installed": ["Not installed", "warn"],
+};
+function renderStatus() {
+  if (!status) return;
+  const st = status.status || {}, svc = status.services || {}, now = status.now;
+  let key = st.state || "not installed";
+  if (key === "running" && svc.workload !== "active") key = "stopped";
+  if (key === "stopped" && svc.workload === "active") key = "running";
+  const [label, cls] = STATES[key] || [key, "warn"];
+  const pill = $("state"); pill.className = "pill " + cls; pill.lastElementChild.textContent = label;
+  document.title = `${label} · Parma Ham${info ? " · " + info.node.hostname : ""}`;
+
+  if (status.db_error) banner("Database metrics unavailable: " + status.db_error); else if ($("banner").textContent.startsWith("Database")) banner(null);
+
+  const cap = info && info.capacity;
+  targetNopm = st.target_nopm ?? (cap && info.config ? Math.round(cap.nopm * info.config.WORKLOAD_PERCENT / 100) : null);
+  const pct = st.percent ?? (info && info.config && info.config.WORKLOAD_PERCENT);
+  $("t-target").innerHTML = targetNopm != null ? fmtInt(targetNopm) + "<small>NOPM</small>" : "–";
+  $("t-target-f").textContent = pct != null ? `${pct}% of capacity · ${st.vu ?? "–"} virtual users` : "workload not installed";
+
+  const last = status.last_ok_result;
+  if (last) {
+    const ratio = last.target_nopm ? 100 * last.nopm / last.target_nopm : null;
+    $("t-last").innerHTML = fmtInt(last.nopm) + "<small>NOPM</small>";
+    $("t-last-f").innerHTML = (ratio != null ? `<span class="${Math.abs(ratio - 100) <= 5 ? "up" : "down"}">${ratio.toFixed(1)}% of target</span> · ` : "") + `${fmtInt(last.tpm)} TPM · ${ago(parseTs(last.finished_at))}`;
+  } else { $("t-last").textContent = "–"; $("t-last-f").textContent = "no completed run yet"; }
+
+  if (cap) {
+    $("t-cap").innerHTML = fmtInt(cap.nopm) + "<small>NOPM</small>";
+    $("t-cap-f").textContent = `${cap.vu} VU · ${cap.rampup_min}+${cap.duration_min} min · ${fmtWhen(parseTs(cap.measured_at))}`;
+  } else { $("t-cap").textContent = "–"; $("t-cap-f").textContent = "not measured yet"; }
+
+  const sum = status.summary || {};
+  $("t-runs").textContent = fmtInt(sum.runs || 0);
+  $("t-runs-f").textContent = sum.runs ? `${sum.ok} successful · ${(100 * sum.ok / sum.runs).toFixed(1)}%` : "no runs yet";
+  const first = parseTs(sum.first_started_at);
+  $("t-uptime").textContent = first ? fmtDur(now - first) : "–";
+  $("t-uptime-f").textContent = first ? `since ${new Date(first * 1000).toLocaleDateString([], { year: "numeric", month: "short", day: "numeric" })} · node up ${fmtDur(status.uptime_sec)}` : `node up ${fmtDur(status.uptime_sec)}`;
+
+  renderProgress(key, st, now);
+  $("bench-aside").textContent = info && info.schema ? `TPROC-C · ${fmtInt(info.schema.warehouses)} warehouses · HammerDB ${info.config.HAMMERDB_VERSION}` : "";
+  if (info) renderBenchInfo();
+}
+function renderProgress(key, st, now) {
+  const what = $("p-what"), eta = $("p-eta"), bar = $("p-bar");
+  const ramp = bar.querySelector(".ramp"), meas = bar.querySelector(".meas");
+  if ((key === "running" || key === "capacity") && st.started_at) {
+    const start = parseTs(st.started_at), r = st.rampup_min * 60, d = st.duration_min * 60, el = now - start, tot = r + d;
+    const rampW = 100 * r / tot;
+    ramp.style.left = "0"; ramp.style.width = Math.min(el, r) / tot * 100 + "%";
+    meas.style.left = rampW + "%"; meas.style.width = Math.max(0, Math.min(el - r, d)) / tot * 100 + "%";
+    bar.querySelectorAll(".tick").forEach((t) => t.remove());
+    const tick = document.createElement("div"); tick.className = "tick"; tick.style.left = rampW + "%"; bar.appendChild(tick);
+    const label = key === "capacity" ? "Capacity measurement" : `Run ${st.iteration}`;
+    what.textContent = el < r ? `${label} · warming up ${clock(el)} / ${clock(r)}` : `${label} · measuring ${clock(el - r)} / ${clock(d)}`;
+    eta.textContent = el < tot ? `result in ${fmtDur(tot - el)} (${fmtWhen(start + tot)})` : "finishing…";
+  } else {
+    ramp.style.width = "0"; meas.style.width = "0";
+    bar.querySelectorAll(".tick").forEach((t) => t.remove());
+    if (key === "sleeping") { what.textContent = `Pausing after run ${st.iteration}`; eta.textContent = `next run in ${fmtDur(parseTs(st.sleep_until) - now)}`; }
+    else if (key === "error") { what.textContent = "Last run failed"; eta.textContent = st.sleep_until ? `retrying in ${fmtDur(parseTs(st.sleep_until) - now)}` : (st.note || ""); }
+    else { what.textContent = STATES[key] ? STATES[key][0] : key; eta.textContent = st.note || ""; }
+  }
+}
+function renderRuns() {
+  const rows = results.slice(-12).reverse();
+  $("runs").innerHTML = `<tr><th>Run</th><th>Finished</th><th class="r">NOPM</th><th class="r">TPM</th><th class="r">Target</th><th class="r">Of target</th><th class="r">VU</th><th class="r">Minutes</th><th>Result</th></tr>` +
+    (rows.length ? rows.map((r) => {
+      const ratio = r.ok && r.target_nopm ? 100 * r.nopm / r.target_nopm : null;
+      return `<tr><td class="num">${r.iteration}</td><td>${fmtWhen(parseTs(r.finished_at))}</td><td class="r num">${r.ok ? fmtInt(r.nopm) : "–"}</td><td class="r num">${r.ok ? fmtInt(r.tpm) : "–"}</td><td class="r num">${fmtInt(r.target_nopm)}</td>` +
+        `<td class="r num ${ratio == null ? "" : Math.abs(ratio - 100) <= 5 ? "up" : "down"}">${ratio == null ? "–" : ratio.toFixed(1) + "%"}</td><td class="r num">${r.vu}</td><td class="r num">${r.duration_min ?? "–"}</td>` +
+        `<td>${r.ok ? '<span class="up">ok</span>' : `<span class="down">${esc(r.error || "failed")}</span>`}</td></tr>`;
+    }).join("") : `<tr><td colspan="9" class="neutral">No runs recorded yet.</td></tr>`);
+}
+
+const kv = (rows) => rows.filter((r) => r[1] != null && r[1] !== "").map(([k, v]) => `<tr><td>${esc(k)}</td><td>${v}</td></tr>`).join("");
+function renderInfo() {
+  const n = info.node, db = info.db || {}, fs = info.filesystem;
+  $("host").innerHTML = `<b>${esc(n.hostname)}</b> · ${esc(n.os)}`;
+  const topo = [n.sockets && `${n.sockets} socket${n.sockets > 1 ? "s" : ""}`, n.cores_per_socket && `${n.cores_per_socket} cores/socket`, n.threads_per_core && `${n.threads_per_core} threads/core`].filter(Boolean).join(" · ");
+  $("i-node").innerHTML = kv([
+    ["System", esc(n.system)], ["Virtualization", esc(n.virtualization)],
+    ["CPU", esc(n.cpu_model)], ["CPUs", `${n.cpus}${topo ? " (" + esc(topo) + ")" : ""}`],
+    ["NUMA nodes", esc(n.numa_nodes)], ["L3 cache", esc(n.l3_cache)],
+    ["Memory", fmtBytes(n.mem_total)],
+    ["Disks", n.disks.map((d) => `${esc(d.name)}: ${fmtBytes(d.size)} ${d.rotational ? "HDD" : d.name.startsWith("nvme") ? "NVMe" : "SSD"}${d.model ? " · " + esc(d.model) : ""}`).join("<br>")],
+    ["Network", n.nics.map((x) => `${esc(x.name)}${x.speed_mbps ? " · " + (x.speed_mbps >= 1000 ? x.speed_mbps / 1000 + " Gb/s" : x.speed_mbps + " Mb/s") : ""}`).join("<br>")],
+    ["Operating system", esc(n.os)], ["Kernel", esc(n.kernel) + " · " + esc(n.arch)],
+    ["Pressure stall info", n.psi_available ? "available" : "not enabled in kernel"],
+  ]);
+  $("i-db").innerHTML = db.error && !db.version ? kv([["Status", `<span class="down">${esc(db.error)}</span>`]]) : kv([
+    ["Server", esc(db.engine)], ["Version", esc(db.version) + (db.version_comment ? `<br><span class="neutral">${esc(db.version_comment)}</span>` : "")],
+    ["Buffer pool", fmtBytes(+db.innodb_buffer_pool_size)], ["Redo log capacity", fmtBytes(+db.innodb_redo_log_capacity)],
+    ["Flush log at commit", esc(db.innodb_flush_log_at_trx_commit)], ["Flush method", esc(db.innodb_flush_method)],
+    ["IO capacity", `${esc(db.innodb_io_capacity)} / max ${esc(db.innodb_io_capacity_max)}`],
+    ["Binary log", esc(db.log_bin)], ["Isolation", esc(db.transaction_isolation)], ["Max connections", esc(db.max_connections)],
+    ["Data directory", esc(db.datadir) + (fs ? `<br><span class="neutral">${esc(fs.device)} · ${esc(fs.fstype)} · ${fmtBytes(fs.free)} free of ${fmtBytes(fs.size)}</span>` : "")],
+    ["Benchmark schema", db.bench_db ? `${esc(db.bench_db)} · ${fmtBytes(db.bench_db_size_bytes)}${db.warehouses ? " · " + fmtInt(db.warehouses) + " warehouses" : ""}` : null],
+  ]);
+}
+function renderBenchInfo() {
+  const c = info.config || {}, st = (status && status.status) || {}, svc = (status && status.services) || {}, pg = status && status.purge, sch = info.schema;
+  let purge = "not installed";
+  if (svc.purge_timer === "active") {
+    purge = pg ? (pg.note ? esc(pg.note) : `${fmtInt(pg.orders_deleted)} orders, ${fmtInt(pg.order_line_deleted)} order lines, ${fmtInt(pg.history_deleted)} history rows`) + `<br><span class="neutral">${ago(pg.started_at)}${pg.duration_sec != null ? ` · took ${pg.duration_sec.toFixed(1)}s` : ""}</span>` : "waiting for first run";
+  }
+  $("i-bench").innerHTML = kv([
+    ["Workload", `${esc(svc.workload || "–")}${st.pace_ms && st.pace_ms !== 0 ? ` · paced at ${(+st.pace_ms).toFixed(1)} ms/transaction per VU` : ""}`],
+    ["Iteration", `${c.WORKLOAD_RAMPUP} min warm-up + ${c.WORKLOAD_DURATION} min run${+c.WORKLOAD_SLEEP ? ` + ${c.WORKLOAD_SLEEP}s pause` : ""}`],
+    ["Load level", `${c.WORKLOAD_PERCENT}% of capacity`],
+    ["Capacity test", `${c.CAPACITY_VU} VU · ${c.CAPACITY_RAMPUP} min warm-up + ${c.CAPACITY_DURATION} min`],
+    ["Schema", sch ? `${fmtInt(sch.warehouses)} warehouses · built ${fmtWhen(parseTs(sch.created_at))} in ${fmtDur(sch.build_seconds)}` : "not generated"],
+    ["Purge", `${svc.purge_timer === "active" ? `every ${c.PURGE_INTERVAL_MIN} min · keep ${c.PURGE_RETENTION_HOURS}h` : ""}`],
+    ["Last purge", purge],
+    ["HammerDB", esc(c.HAMMERDB_VERSION)],
+  ]);
+}
+
+pollInfo(); pollStatus(); pollResults(); pollMetrics();
+setInterval(pollMetrics, 3000);
+setInterval(pollStatus, 5000);
+setInterval(pollResults, 60000);
+setInterval(pollInfo, 300000);
+setInterval(() => status && renderStatus(), 1000);
+</script>
+</body>
+</html>
