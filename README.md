@@ -144,8 +144,9 @@ Runs a public dashboard with no login, by design. It shows:
   pool, redo log and checkpoint age, undo history length, row lock waits, and
   `mysqld` memory (VSZ, RSS, and PSS + SwapPSS on one chart), and space on
   the volume that holds the data directory.
-* **HammerDB execution:** a summary of the last completed run, plus a live
-  tail of the current run's HammerDB log (switchable to the last completed run).
+* **Last HammerDB execution:** a summary of the last completed run, with a
+  **View log** link to its HammerDB log. The run-progress bar at the top has a
+  **Live log** link that follows the log of the run in progress.
   * The summary covers the result and % of target, test period, virtual users
     finished/failed, pacing, versions and error lines.
   * It can also show response times per transaction type (calls, average,

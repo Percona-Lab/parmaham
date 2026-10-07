@@ -82,7 +82,11 @@ header {
 .tile .foot { color: var(--muted); font-size: 12px; margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .up { color: var(--ok); } .down { color: var(--bad); } .neutral { color: var(--muted); }
 
-.progress { margin-top: 12px; padding: 13px 15px; display: grid; grid-template-columns: auto 1fr auto; gap: 14px; align-items: center; }
+.progress { margin-top: 12px; padding: 13px 15px; display: grid; grid-template-columns: auto 1fr auto auto; gap: 14px; align-items: center; }
+a.loglink { color: var(--info); font-size: 13px; font-weight: 600; text-decoration: none; white-space: nowrap; }
+a.loglink:hover { text-decoration: underline; }
+.lrgrid { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 20px; }
+@media (max-width: 960px) { .lrgrid { grid-template-columns: minmax(0, 1fr); } }
 .progress .what { font-weight: 600; white-space: nowrap; }
 .bar { position: relative; height: 10px; border-radius: 6px; background: var(--panel-2); border: 1px solid var(--border); overflow: hidden; }
 .bar .ramp, .bar .meas { position: absolute; top: 0; bottom: 0; }
@@ -151,8 +155,6 @@ pre.log {
 pre.log .hl { color: var(--ok); font-weight: 600; }
 pre.log .err { color: var(--bad); }
 pre.log .dim { color: var(--faint); }
-.loghead { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }
-.loghead .file { color: var(--muted); font-size: 12px; }
 table.lat { width: 100%; border-collapse: collapse; font-size: 12.5px; }
 table.lat th { text-align: right; color: var(--muted); font-weight: 500; font-size: 11.5px; padding: 3px 0 5px 10px; border-bottom: 1px solid var(--border); white-space: nowrap; }
 table.lat td { text-align: right; padding: 4px 0 4px 10px; border-top: 1px solid var(--grid); white-space: nowrap; font-variant-numeric: tabular-nums; }
@@ -214,6 +216,7 @@ footer { color: var(--faint); font-size: 12px; margin-top: 28px; text-align: cen
     <div class="what" id="p-what">–</div>
     <div class="bar" id="p-bar"><div class="ramp"></div><div class="meas"></div></div>
     <div class="eta num" id="p-eta"></div>
+    <a href="#" class="loglink" id="p-log" style="display:none" title="Follow the HammerDB log of the run in progress">Live log ›</a>
   </div>
 
   <h2>Benchmark <span class="aside" id="bench-aside"></span></h2>
@@ -222,14 +225,11 @@ footer { color: var(--faint); font-size: 12px; margin-top: 28px; text-align: cen
     <div class="panel"><div class="phead"><h3>Result of every run</h3><span class="cur" id="hist-span"></span></div><div class="chart tall" id="c-hist"></div><div class="legend" id="l-hist"></div></div>
   </div>
 
-  <h2>HammerDB execution</h2>
-  <div class="grid two">
-    <div class="panel"><div class="phead"><h3>Last HammerDB execution summary</h3><span class="cur" id="lr-when"></span></div><table class="kv" id="i-lastrun"></table></div>
-    <div class="panel">
-      <div class="loghead"><h3 style="margin:0;font-size:13.5px">HammerDB run log</h3>
-        <div class="seg" id="logsel"><button data-which="current" class="on">Current run</button><button data-which="last">Last completed</button></div></div>
-      <pre class="log" id="runlog">loading…</pre>
-      <div class="loghead" style="margin:6px 0 0"><span class="file" id="logfile"></span><span class="file" id="logupd"></span></div>
+  <h2>Last HammerDB execution <span class="aside" id="lr-when"></span></h2>
+  <div class="panel">
+    <div class="lrgrid">
+      <div><table class="kv" id="i-lastrun"></table></div>
+      <div id="lr-detail"></div>
     </div>
   </div>
 
@@ -555,27 +555,39 @@ function connection(ok) {
 }
 function banner(msg) { const b = $("banner"); b.style.display = msg ? "block" : "none"; b.textContent = msg || ""; }
 
-let lastSeenIteration = null, logWhich = "current", logStick = true;
-document.querySelectorAll("#logsel button").forEach((b) => {
-  b.onclick = () => { logWhich = b.dataset.which; logStick = true; document.querySelectorAll("#logsel button").forEach((x) => x.classList.toggle("on", x === b)); pollLog(); };
-});
-$("runlog").addEventListener("scroll", () => { const el = $("runlog"); logStick = el.scrollTop + el.clientHeight >= el.scrollHeight - 8; });
+let lastSeenIteration = null;
 function logClass(line) {
   if (/TEST RESULT|ALL VIRTUAL USERS COMPLETE|Rampup complete|Test complete/.test(line)) return "hl";
   if (/error|exception|FAILED|lost connection|deadlock/i.test(line)) return "err";
   if (/^Vuser \d+ created|:RUNNING$|:Ssl_cipher|Processing \d+ transactions|^(Value|Changed) /.test(line)) return "dim";
   return "";
 }
-async function pollLog() {
+const logHtml = (lines) => lines.map((l) => { const c = logClass(l); return c ? `<span class="${c}">${esc(l)}</span>` : esc(l); }).join("\n");
+// live log of the run in progress, refreshed while the dialog is open
+let liveTimer = null, liveStick = true;
+function stopLive() { if (liveTimer) clearInterval(liveTimer); liveTimer = null; }
+async function refreshLive() {
   try {
-    const d = await getJSON(`/api/log?which=${logWhich}&lines=150`);
-    const el = $("runlog");
-    el.innerHTML = d.lines && d.lines.length ? d.lines.map((l) => { const c = logClass(l); return c ? `<span class="${c}">${esc(l)}</span>` : esc(l); }).join("\n") : "No HammerDB log yet.";
-    if (logStick) el.scrollTop = el.scrollHeight;
-    $("logfile").textContent = d.file ? `/var/log/parmaham/${d.file} · ${fmtBytes(d.size)}` : "";
-    $("logupd").textContent = d.mtime ? `updated ${ago(d.mtime)}` : "";
+    const d = await getJSON("/api/log?which=current&lines=200");
+    const pre = $("live-log"); if (!pre) return stopLive();
+    pre.innerHTML = d.lines && d.lines.length ? logHtml(d.lines) : "No HammerDB log yet.";
+    if (liveStick) pre.scrollTop = pre.scrollHeight;
+    $("dlg-sub").textContent = d.file ? `/var/log/parmaham/${d.file} · ${fmtBytes(d.size)} · updated ${ago(d.mtime)} · refreshes every 5 s` : "";
   } catch (e) {}
 }
+function openLiveLog() {
+  stopLive();
+  const st = (status && status.status) || {};
+  $("dlg-title").textContent = st.state === "capacity" ? "Capacity measurement · live log" : `Run ${st.iteration ?? ""} · live log`;
+  $("dlg-sub").textContent = "";
+  $("dlg-body").innerHTML = `<pre class="log" id="live-log" style="height:62vh;max-height:none">loading…</pre>`;
+  liveStick = true;
+  $("live-log").addEventListener("scroll", () => { const el = $("live-log"); liveStick = el.scrollTop + el.clientHeight >= el.scrollHeight - 8; });
+  if (!$("logdlg").open) $("logdlg").showModal();
+  refreshLive(); liveTimer = setInterval(refreshLive, 5000);
+}
+$("p-log").onclick = (e) => { e.preventDefault(); openLiveLog(); };
+$("logdlg").addEventListener("close", stopLive);
 async function pollLastRun() {
   try { renderLastRun(await getJSON("/api/lastrun")); } catch (e) {}
 }
@@ -585,7 +597,7 @@ function renderLastRun(d) {
   const key = JSON.stringify([r && r.iteration, s && s.file, s && s.size]);
   if (key === lrKey) { if (r) $("lr-when").textContent = `finished ${ago(parseTs(r.finished_at))}`; return; }
   lrKey = key;
-  if (!r && !s) { $("i-lastrun").innerHTML = kv([["Status", "No HammerDB execution completed yet."]]); $("lr-when").textContent = ""; return; }
+  if (!r && !s) { $("i-lastrun").innerHTML = kv([["Status", "No HammerDB execution completed yet."]]); $("lr-detail").innerHTML = ""; $("lr-when").textContent = ""; return; }
   const ratio = r && r.ok && r.target_nopm ? 100 * r.nopm / r.target_nopm : null;
   const started = r ? parseTs(r.started_at) : null, finished = r ? parseTs(r.finished_at) : null;
   $("lr-when").textContent = finished ? `finished ${ago(finished)}` : "";
@@ -602,10 +614,14 @@ function renderLastRun(d) {
     ["Pacing", s ? (s.pace_ms ? `one transaction every ${s.pace_ms} ms per virtual user` : "unthrottled") : null],
     ["Versions", s && (s.hammerdb_version || s.db_version) ? `HammerDB ${esc(s.hammerdb_version || "?")} · MySQL ${esc(s.db_version || "?")}` : null],
     ["Errors", s ? (s.error_count ? `<span class="down">${s.error_count} error line${s.error_count > 1 ? "s" : ""}</span><ul class="errs">${s.errors.map((e) => `<li>${esc(e)}</li>`).join("")}</ul>` : '<span class="up">none</span>') : null],
-    ["Log", s ? `<span class="mono">${esc(s.file)}</span> · ${fmtBytes(s.size)}` : null],
-  ]) + `<tr><td colspan="2" style="padding-top:10px;width:auto;color:var(--text)">${(lrReport = reportBlock(s && s.report)).html || lrReport}</td></tr>` +
-    `<tr><td colspan="2" style="padding-top:10px;width:auto;color:var(--text)">${latencyTable(s && s.timing)}${xtSummary(s && s.xtprofile_summary)}</td></tr>`;
+    ["Log", s ? `<a href="#" class="loglink" id="lr-log">View log ›</a> <span class="neutral">· <span class="mono">${esc(s.file)}</span> · ${fmtBytes(s.size)}</span>` : null],
+  ]);
+  lrReport = reportBlock(s && s.report);
+  $("lr-detail").innerHTML = `<div class="latnote" style="margin:0 0 6px;font-size:12px;text-transform:uppercase;letter-spacing:.6px">HammerDB report</div>${lrReport.html || lrReport}` +
+    `<div class="latnote" style="margin:14px 0 6px;font-size:12px;text-transform:uppercase;letter-spacing:.6px">Response times by transaction</div>${latencyTable(s && s.timing)}${xtSummary(s && s.xtprofile_summary)}`;
   if (lrReport.mount) lrReport.mount();
+  const ll = $("lr-log");
+  if (ll) ll.onclick = (e) => { e.preventDefault(); openRunLog(s.file, r ? results.findIndex((x) => x.iteration === r.iteration) : -1); };
 }
 async function pollStatus() {
   try {
@@ -685,9 +701,11 @@ function renderProgress(key, st, now) {
     const label = key === "capacity" ? "Capacity measurement" : `Run ${st.iteration}`;
     what.textContent = el < r ? `${label} · warming up ${clock(el)} / ${clock(r)}` : `${label} · measuring ${clock(el - r)} / ${clock(d)}`;
     eta.textContent = el < tot ? `result in ${fmtDur(tot - el)} (${fmtWhen(start + tot)})` : "finishing…";
+    $("p-log").style.display = "";
   } else {
     ramp.style.width = "0"; meas.style.width = "0";
     bar.querySelectorAll(".tick").forEach((t) => t.remove());
+    $("p-log").style.display = "none";
     if (key === "sleeping") { what.textContent = `Pausing after run ${st.iteration}`; eta.textContent = `next run in ${fmtDur(parseTs(st.sleep_until) - now)}`; }
     else if (key === "error") { what.textContent = "Last run failed"; eta.textContent = st.sleep_until ? `retrying in ${fmtDur(parseTs(st.sleep_until) - now)}` : (st.note || ""); }
     else { what.textContent = STATES[key] ? STATES[key][0] : key; eta.textContent = st.note || ""; }
@@ -749,6 +767,7 @@ function runLogName(r) {
   return m ? "runs/" + m[0] : null;
 }
 async function openRunLog(name, idx) {
+  stopLive();
   const dlg = $("logdlg"), r = results[idx];
   $("dlg-title").textContent = r ? `Run ${r.iteration} · ${r.ok ? "completed" : "failed"}` : "Run log";
   $("dlg-sub").textContent = `/var/log/parmaham/${name}`;
@@ -821,8 +840,7 @@ function renderBenchInfo() {
   ]);
 }
 
-pollInfo(); pollStatus(); pollResults(); pollMetrics(); pollRollup(); pollLastRun(); pollLog();
-setInterval(() => { if (logWhich === "current") pollLog(); }, 5000);
+pollInfo(); pollStatus(); pollResults(); pollMetrics(); pollRollup(); pollLastRun();
 setInterval(pollLastRun, 60000);
 setInterval(pollMetrics, 3000);
 setInterval(pollRollup, 60000);
