@@ -130,6 +130,20 @@ table.kv td:last-child { word-break: break-word; }
 .runs td { padding: 5px 8px 5px 0; border-top: 1px solid var(--grid); white-space: nowrap; }
 .runs td.r, .runs th.r { text-align: right; }
 .scroll { overflow-x: auto; }
+.runs tr.click { cursor: pointer; }
+.runs tr.click:hover td { background: var(--panel-2); }
+.runs td a { color: inherit; text-decoration: underline dotted; text-underline-offset: 3px; }
+dialog#logdlg {
+  width: min(1100px, calc(100vw - 32px)); max-height: calc(100vh - 48px); padding: 0; border: 1px solid var(--border);
+  border-radius: 12px; background: var(--panel); color: var(--text); box-shadow: 0 20px 60px rgba(0,0,0,.35);
+}
+dialog#logdlg::backdrop { background: rgba(10, 12, 16, .55); }
+#logdlg .dhead { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; padding: 14px 16px 10px; border-bottom: 1px solid var(--border); }
+#logdlg .dhead h3 { margin: 0; font-size: 15px; }
+#logdlg .dhead .sub { color: var(--muted); font-size: 12.5px; margin-top: 2px; }
+#logdlg .dbody { padding: 12px 16px 16px; overflow: auto; max-height: calc(100vh - 140px); }
+#logdlg .dbody h4 { margin: 12px 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); }
+#logdlg pre.log { height: auto; max-height: 52vh; }
 pre.log {
   margin: 0; height: 380px; overflow: auto; background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px;
   padding: 8px 10px; font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: var(--text); white-space: pre;
@@ -242,6 +256,11 @@ footer { color: var(--faint); font-size: 12px; margin-top: 28px; text-align: cen
     <div class="panel"><div class="phead"><h3>Database</h3></div><table class="kv" id="i-db"></table></div>
     <div class="panel"><div class="phead"><h3>Benchmark &amp; purge</h3></div><table class="kv" id="i-bench"></table></div>
   </div>
+
+  <dialog id="logdlg" aria-labelledby="dlg-title">
+    <div class="dhead"><div><h3 id="dlg-title">Run log</h3><div class="sub" id="dlg-sub"></div></div><button class="iconbtn" id="dlg-close" aria-label="Close">✕ Close</button></div>
+    <div class="dbody" id="dlg-body"></div>
+  </dialog>
 
   <footer>Parma Ham · HammerDB TPROC-C · this page refreshes automatically</footer>
 </div>
@@ -644,14 +663,48 @@ function renderProgress(key, st, now) {
 }
 function renderRuns() {
   const rows = results.slice(-12).reverse();
+  $("runs").onclick = (e) => { const tr = e.target.closest("tr[data-log]"); if (tr) openRunLog(tr.dataset.log, +tr.dataset.idx); };
   $("runs").innerHTML = `<tr><th>Run</th><th>Finished</th><th class="r">NOPM</th><th class="r">TPM</th><th class="r">Target</th><th class="r">Of target</th><th class="r">VU</th><th class="r">Minutes</th><th>Result</th></tr>` +
     (rows.length ? rows.map((r) => {
       const ratio = r.ok && r.target_nopm ? 100 * r.nopm / r.target_nopm : null;
-      return `<tr><td class="num">${r.iteration}</td><td>${fmtWhen(parseTs(r.finished_at))}</td><td class="r num">${r.ok ? fmtInt(r.nopm) : "–"}</td><td class="r num">${r.ok ? fmtInt(r.tpm) : "–"}</td><td class="r num">${fmtInt(r.target_nopm)}</td>` +
+      const lg = runLogName(r);
+      return `<tr${lg ? ` class="click" data-log="${esc(lg)}" data-idx="${results.indexOf(r)}" title="Show the HammerDB log of this run"` : ""}><td class="num">${r.iteration}</td><td>${fmtWhen(parseTs(r.finished_at))}</td><td class="r num">${r.ok ? fmtInt(r.nopm) : "–"}</td><td class="r num">${r.ok ? fmtInt(r.tpm) : "–"}</td><td class="r num">${fmtInt(r.target_nopm)}</td>` +
         `<td class="r num ${ratio == null ? "" : Math.abs(ratio - 100) <= 5 ? "up" : "down"}">${ratio == null ? "–" : ratio.toFixed(1) + "%"}</td><td class="r num">${r.vu}</td><td class="r num">${r.duration_min ?? "–"}</td>` +
-        `<td>${r.ok ? '<span class="up">ok</span>' : `<span class="down">${esc(r.error || "failed")}</span>`}</td></tr>`;
+        `<td>${r.ok ? '<span class="up">ok</span>' : `<span class="down">${esc(r.error || "failed")}</span>`}${lg ? ' · <a href="#" onclick="return false">log</a>' : ""}</td></tr>`;
     }).join("") : `<tr><td colspan="9" class="neutral">No runs recorded yet.</td></tr>`);
 }
+
+function runLogName(r) {
+  if (r.log) return r.log;
+  const m = /run-\d{8}-\d{6}\.log/.exec(r.error || "");
+  return m ? "runs/" + m[0] : null;
+}
+async function openRunLog(name, idx) {
+  const dlg = $("logdlg"), r = results[idx];
+  $("dlg-title").textContent = r ? `Run ${r.iteration} · ${r.ok ? "completed" : "failed"}` : "Run log";
+  $("dlg-sub").textContent = `/var/log/parmaham/${name}`;
+  $("dlg-body").innerHTML = "loading…";
+  if (!dlg.open) dlg.showModal();
+  try {
+    const d = await getJSON(`/api/runlog?name=${encodeURIComponent(name)}&lines=200`);
+    const s = d.summary || {}, t = d.tail || { lines: [] };
+    const started = r ? parseTs(r.started_at) : null, finished = r ? parseTs(r.finished_at) : null;
+    const facts = kv([
+      ["Started", started ? new Date(started * 1000).toLocaleString() : null],
+      ["Finished", finished ? `${new Date(finished * 1000).toLocaleString()} · ran ${fmtDur(finished - started)}` : null],
+      ["Result", r && r.ok ? `${fmtInt(r.nopm)} NOPM · ${fmtInt(r.tpm)} TPM (target ${fmtInt(r.target_nopm)})` : `<span class="down">${esc((r && r.error) || "no result")}</span>`],
+      ["HammerDB result", s.result_line ? `<span class="mono">${esc(s.result_line)}</span>` : null],
+      ["Virtual users", s.vu_success != null ? `${s.vu_success} finished OK${s.vu_failed ? `, <span class="down">${s.vu_failed} failed</span>` : ""}` : null],
+      ["Error lines", s.error_count ? `<span class="down">${s.error_count}</span>` : '<span class="up">none</span>'],
+    ]);
+    const errs = s.errors && s.errors.length ? `<h4>First errors (usually the cause)</h4><ul class="errs">${s.errors.map((e) => `<li>${esc(e)}</li>`).join("")}</ul>` : "";
+    const body = t.lines.length ? t.lines.map((l) => { const c = logClass(l); return c ? `<span class="${c}">${esc(l)}</span>` : esc(l); }).join("\n") : "log file not found (only the newest 200 run logs are kept)";
+    $("dlg-body").innerHTML = `<table class="kv">${facts}</table>${errs}<h4>Last ${t.lines.length} lines${t.size ? " · " + fmtBytes(t.size) : ""}</h4><pre class="log" id="dlg-log">${body}</pre>`;
+    const pre = $("dlg-log"); pre.scrollTop = pre.scrollHeight;
+  } catch (e) { $("dlg-body").textContent = "Could not load the log: " + e.message; }
+}
+$("dlg-close").onclick = () => $("logdlg").close();
+$("logdlg").addEventListener("click", (e) => { if (e.target === $("logdlg")) $("logdlg").close(); });
 
 const kv = (rows) => rows.filter((r) => r[1] != null && r[1] !== "").map(([k, v]) => `<tr><td>${esc(k)}</td><td>${v}</td></tr>`).join("");
 function renderInfo() {

@@ -774,6 +774,14 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json({"results": read_results(limit)})
             elif url.path == "/api/lastrun":
                 self.send_json(last_completed())
+            elif url.path == "/api/runlog":
+                # one specific run's log: summary plus tail
+                name = q.get("name", [""])[0]
+                lines = max(10, min(1000, int(q.get("lines", ["200"])[0])))
+                if not log_path(name):
+                    self.send_json({"error": "unknown log"}, 404)
+                else:
+                    self.send_json({"summary": summarize_log(name), "tail": tail_log(name, lines)})
             elif url.path == "/api/log":
                 which = q.get("which", ["current"])[0]
                 lines = max(10, min(500, int(q.get("lines", ["80"])[0])))
