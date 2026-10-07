@@ -46,10 +46,10 @@ s = u.spec_from_file_location('c', sys.argv[1]); m = u.module_from_spec(s); s.lo
 print(getattr(m, 'PROCESS', ''))" "$PMH_HOME/$PMH_DB/dashboard_collector.py")
 cat > "/etc/systemd/system/$MEM_UNIT" <<EOF
 [Unit]
-Description=Parma Ham: database server memory usage for the dashboard
+Description=Parma Ham: database server and HammerDB memory/CPU usage for the dashboard
 
 [Service]
-ExecStart=/usr/bin/python3 $PMH_HOME/dashboard/procmem.py /run/parmaham/procmem.json $DASHBOARD_INTERVAL $DB_PROCESS
+ExecStart=/usr/bin/python3 $PMH_HOME/dashboard/procmem.py /run/parmaham/procmem.json $DASHBOARD_INTERVAL $DB_PROCESS hammerdb=parmaham-workload.service,parmaham-capacity.service+hammerdbcli
 RuntimeDirectory=parmaham
 RuntimeDirectoryMode=0755
 CapabilityBoundingSet=CAP_SYS_PTRACE

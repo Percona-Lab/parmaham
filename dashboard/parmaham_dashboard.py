@@ -333,17 +333,44 @@ def filesystem_info(path):
 PROCMEM_FILE = os.environ.get("PMH_PROCMEM", "/run/parmaham/procmem.json")
 
 
-def db_process_memory(name, max_age):
-    data = read_json(PROCMEM_FILE)
-    if not data or time.time() - data.get("t", 0) > max_age:
-        return {}
-    p = data.get("procs", {}).get(name)
-    if not p:
-        return {}
-    out = {"proc_vsz": p.get("vsz"), "proc_rss": p.get("rss")}
-    if "pss" in p:
-        out["proc_pss_swap"] = p["pss"] + p.get("swap_pss", 0)
-    return {k: v for k, v in out.items() if v is not None}
+# label of the procmem.py group covering everything HammerDB runs
+HAMMERDB_PROCESS = "hammerdb"
+
+
+class ProcessStats:
+    """Memory and CPU (cores in use) per watched process, from procmem.py.
+
+    Keys use a prefix per process: proc_* for the database server (name kept
+    for history compatibility) and hdb_* for HammerDB.
+    """
+
+    def __init__(self, names):
+        self.names = names            # {process name: key prefix}
+        self.prev = {}                # name -> (pid, cpu_sec, t)
+
+    def sample(self, max_age):
+        data = read_json(PROCMEM_FILE)
+        if not data or time.time() - data.get("t", 0) > max_age:
+            return {}
+        out = {}
+        for name, pre in self.names.items():
+            p = data.get("procs", {}).get(name)
+            if not p:
+                self.prev.pop(name, None)
+                continue
+            out[pre + "_vsz"] = p.get("vsz")
+            out[pre + "_rss"] = p.get("rss")
+            if "pss" in p:
+                out[pre + "_pss_swap"] = p["pss"] + p.get("swap_pss", 0)
+            if "cpu_sec" in p:
+                prev = self.prev.get(name)
+                if prev and data["t"] > prev[2]:
+                    delta = p["cpu_sec"] - prev[1]
+                    if delta >= 0:  # a restarted process or service resets the counter
+                        out[pre + "_cpu"] = delta / (data["t"] - prev[2])
+                if not prev or data["t"] > prev[2]:
+                    self.prev[name] = (p.get("pid"), p["cpu_sec"], data["t"])
+        return {k: v for k, v in out.items() if v is not None}
 
 
 # ---------------------------------------------------------------------------
@@ -442,6 +469,7 @@ class Sampler(threading.Thread):
         self.db_info_at = 0
         self.db_error = None
         self.node = node_info()
+        self.procs = ProcessStats({getattr(self.db_module, "PROCESS", "mysqld"): "proc", HAMMERDB_PROCESS: "hdb"})
 
     def refresh_db_info(self):
         try:
@@ -488,7 +516,7 @@ class Sampler(threading.Thread):
                     point["db_up"] = 1
                 elif cur_db is None:
                     point["db_up"] = 0
-                point.update(db_process_memory(getattr(self.db_module, "PROCESS", ""), 3 * self.interval))
+                point.update(self.procs.sample(3 * self.interval))
                 point.update(volume_space(self.db_info.get("datadir")))
                 point = {k: (round(v, 3) if isinstance(v, float) else v) for k, v in point.items()}
                 if "disks" in point:

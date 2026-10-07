@@ -160,6 +160,11 @@ Runs a public dashboard with no login, by design. It shows:
     also includes the profiler's own text summary from `hdbxtprofile.log`.
   * Clicking any run in **Recent runs** shows the same summary and the tail of
     that run's log.
+* **Processes:** CPU in use (cores) for `mysqld` and HammerDB, plus memory
+  (VSZ, RSS, PSS + SwapPSS) for each. HammerDB covers every process in the
+  workload and capacity services (`hammerdbcli` with one thread per virtual
+  user, plus the loop script and log filter) and any `hammerdbcli` started by
+  hand.
 * **Operating system:** pressure stall information (CPU, memory and IO
   `some`/`full`), CPU breakdown including steal, load and run queue, memory and
   swap, disk IOPS, throughput and utilization, network, context switches and
@@ -199,7 +204,7 @@ Implementation notes:
 | `parmaham-workload.service` | the permanent HammerDB loop (user `parmaham`) |
 | `parmaham-purge.timer` / `.service` | periodic purge |
 | `parmaham-dashboard.service` | dashboard |
-| `parmaham-procmem.service` | reads `mysqld` memory (VSZ/RSS/PSS) for the dashboard |
+| `parmaham-procmem.service` | reads `mysqld` and HammerDB CPU and memory (VSZ/RSS/PSS) for the dashboard |
 | `parmaham-capacity.service` | transient, `compute-capacity.sh --background` |
 | `parmaham-thp.service` | disables transparent huge pages at boot |
 
