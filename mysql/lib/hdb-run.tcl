@@ -16,7 +16,13 @@ diset tpcc mysql_driver       timed
 diset tpcc mysql_rampup       $rampup
 diset tpcc mysql_duration     $duration
 diset tpcc mysql_allwarehouse [pmh_env PMH_ALLWAREHOUSE false]
-diset tpcc mysql_timeprofile  false
+# Response-time profiling of every transaction type (low overhead); the
+# percentiles are printed into the log below and shown on the dashboard
+diset tpcc mysql_timeprofile  [pmh_env PMH_TIMEPROFILE true]
+# The profiler keeps a reservoir of response-time samples per transaction
+# type per virtual user (HammerDB default 10000). 1000 bounds the memory to
+# about 64 VU x 5 x 1000 samples while keeping 64000+ samples per type.
+catch { giset timeprofile xt_reservoir [pmh_env PMH_TIMEPROFILE_RESERVOIR 1000] }
 diset tpcc mysql_keyandthink  false
 diset tpcc mysql_total_iterations 10000000000
 
@@ -59,5 +65,11 @@ regexp {jobid=([0-9A-F]+)} $runout -> jobid
 # The caller parses the "TEST RESULT : System achieved N NOPM from M MySQL TPM"
 # line that the monitor virtual user prints.
 # The HammerDB job database would otherwise grow forever on a permanent run
-if { [info exists jobid] } { catch { jobs $jobid delete } }
+if { [info exists jobid] } {
+    # per-transaction response times (calls, avg, p25..p99, max) as JSON
+    puts "PARMAHAM_TIMING_BEGIN"
+    catch { jobs $jobid timing }
+    puts "PARMAHAM_TIMING_END"
+    catch { jobs $jobid delete }
+}
 exit

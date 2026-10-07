@@ -636,11 +636,21 @@ def summarize_log(name):
         return SUMMARY_CACHE_LOG["value"]
     out = {"file": name, "size": st.st_size, "mtime": st.st_mtime,
            "vu_success": 0, "vu_failed": 0, "errors": [], "error_count": 0, "complete": False}
+    timing, in_timing = [], False
     try:
         with open(path, errors="replace") as f:
             for raw in f:
                 line = clean_line(raw)
                 if not line:
+                    continue
+                if line == "PARMAHAM_TIMING_BEGIN":
+                    in_timing = True
+                    continue
+                if line == "PARMAHAM_TIMING_END":
+                    in_timing = False
+                    continue
+                if in_timing:
+                    timing.append(line)
                     continue
                 for k, rx in SUMMARY_PATTERNS.items():
                     if k not in out:
@@ -665,8 +675,37 @@ def summarize_log(name):
             out[k] = int(out[k])
     if "pace_ms" in out:
         out["pace_ms"] = float(out["pace_ms"])
+    out["timing"] = parse_timing(timing)
     SUMMARY_CACHE_LOG.update(key=key, value=out)
     return out
+
+
+TIMING_ORDER = ["NEWORD", "PAYMENT", "DELIVERY", "SLEV", "OSTAT"]
+
+
+def parse_timing(lines):
+    """HammerDB 'jobs <id> timing' JSON -> list of per-transaction rows."""
+    if not lines:
+        return None
+    try:
+        data = json.loads("\n".join(lines))
+    except ValueError:
+        return None
+    if not isinstance(data, dict):
+        return None
+    rows = []
+    for proc in sorted(data, key=lambda p: (TIMING_ORDER.index(p) if p in TIMING_ORDER else 99, p)):
+        v = data[proc]
+        if not isinstance(v, dict):
+            continue
+        row = {"proc": proc}
+        for k, x in v.items():
+            try:
+                row[k] = float(x)
+            except (TypeError, ValueError):
+                pass
+        rows.append(row)
+    return rows or None
 
 
 def current_log_name():
