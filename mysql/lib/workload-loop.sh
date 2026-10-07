@@ -48,7 +48,8 @@ while true; do
         pace_ms "$PACE_MS" correction "$CORRECTION" log "runs/$(basename "$LOGFILE")"
     log "iteration $iteration: $VU VU, target $TARGET_NOPM NOPM ($WORKLOAD_PERCENT% of $CAP_NOPM), pace ${PACE_MS}ms, ${WORKLOAD_RAMPUP}+${WORKLOAD_DURATION} min"
 
-    export PMH_VU=$VU PMH_RAMPUP=$WORKLOAD_RAMPUP PMH_DURATION=$WORKLOAD_DURATION PMH_PACE_MS=$PACE_MS
+    export PMH_VU=$VU PMH_RAMPUP=$WORKLOAD_RAMPUP PMH_DURATION=$WORKLOAD_DURATION PMH_PACE_MS=$PACE_MS \
+           PMH_TIMEPROFILE=$HAMMERDB_TIMEPROFILE
     if RESULT=$(hammerdb_timed_run "$PMH_HOME/mysql/lib/hdb-run.tcl" "$LOGFILE"); then
         read -r NOPM TPM <<< "$RESULT"
         failures=0

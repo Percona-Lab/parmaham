@@ -38,6 +38,12 @@ WORKLOAD_RAMPUP=1
 WORKLOAD_DURATION=60
 WORKLOAD_SLEEP=0
 
+# HammerDB response-time profiling (per-transaction P50/P95/P99 on the
+# dashboard). Costs about 300 bytes of HammerDB memory per transaction for
+# the length of each run (~450 MB per hour at 10k NOPM): enable only with
+# enough free memory.
+HAMMERDB_TIMEPROFILE=false
+
 # --- Purge ------------------------------------------------------------------
 PURGE_RETENTION_HOURS=24
 PURGE_INTERVAL_MIN=15

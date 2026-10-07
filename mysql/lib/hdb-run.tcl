@@ -16,13 +16,11 @@ diset tpcc mysql_driver       timed
 diset tpcc mysql_rampup       $rampup
 diset tpcc mysql_duration     $duration
 diset tpcc mysql_allwarehouse [pmh_env PMH_ALLWAREHOUSE false]
-# Response-time profiling of every transaction type (low overhead); the
-# percentiles are printed into the log below and shown on the dashboard
-diset tpcc mysql_timeprofile  [pmh_env PMH_TIMEPROFILE true]
-# The profiler keeps a reservoir of response-time samples per transaction
-# type per virtual user (HammerDB default 10000). 1000 bounds the memory to
-# about 64 VU x 5 x 1000 samples while keeping 64000+ samples per type.
-catch { giset timeprofile xt_reservoir [pmh_env PMH_TIMEPROFILE_RESERVOIR 1000] }
+# Response-time profiling of every transaction type (HAMMERDB_TIMEPROFILE).
+# The percentiles are printed into the log below and shown on the dashboard.
+# Off by default: HammerDB 6.0 keeps every sample in memory (about 300 bytes
+# per transaction, measured), so a 60-minute run at 10k NOPM costs ~450 MB.
+diset tpcc mysql_timeprofile  [pmh_env PMH_TIMEPROFILE false]
 diset tpcc mysql_keyandthink  false
 diset tpcc mysql_total_iterations 10000000000
 

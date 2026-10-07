@@ -683,7 +683,7 @@ function renderRuns() {
 const TX_NAMES = { NEWORD: "New order", PAYMENT: "Payment", DELIVERY: "Delivery", SLEV: "Stock level", OSTAT: "Order status" };
 function fmtMs(v) { return v == null || isNaN(v) ? "–" : v >= 100 ? v.toFixed(0) : v >= 10 ? v.toFixed(1) : v.toFixed(2); }
 function latencyTable(timing) {
-  if (!timing || !timing.length) return `<div class="latnote">No response-time profile in this run's log (profiling was added on 2026-10-07; earlier runs have none).</div>`;
+  if (!timing || !timing.length) return `<div class="latnote">No response-time profile for this run. Profiling is off unless HAMMERDB_TIMEPROFILE=true in /etc/parmaham/parmaham.conf (it costs HammerDB memory).</div>`;
   return `<div class="scroll"><table class="lat"><tr><th>Transaction (ms)</th><th>Calls</th><th>Avg</th><th>P25</th><th>P50</th><th>P75</th><th>P95</th><th>P99</th><th>Max</th><th>Share</th></tr>` +
     timing.map((t) => `<tr><td title="${esc(t.proc)}">${esc(TX_NAMES[t.proc] || t.proc)}</td><td>${fmtInt(t.calls)}</td><td>${fmtMs(t.avg_ms)}</td><td>${fmtMs(t.p25_ms)}</td><td>${fmtMs(t.p50_ms)}</td><td>${fmtMs(t.p75_ms)}</td><td class="p95">${fmtMs(t.p95_ms)}</td><td>${fmtMs(t.p99_ms)}</td><td>${fmtMs(t.max_ms)}</td><td>${t.ratio_pct != null ? t.ratio_pct.toFixed(1) + "%" : "–"}</td></tr>`).join("") +
     `</table></div><div class="latnote">HammerDB time profile over the whole run, warm-up included. Share = portion of total time spent in that transaction.</div>`;

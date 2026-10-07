@@ -148,9 +148,12 @@ Runs a public dashboard with no login, by design. It shows:
   tail of the current run's HammerDB log (switchable to the last completed run).
   * The summary covers the result and % of target, test period, virtual users
     finished/failed, pacing, versions and error lines.
-  * It also has response times per transaction type (calls, average, P25, P50,
-    P75, P95, P99 and max) from HammerDB's time profiler, kept with a
-    1,000-sample reservoir per transaction type and virtual user to bound memory.
+  * It can also show response times per transaction type (calls, average,
+    P25, P50, P75, P95, P99 and max) from HammerDB's time profiler. This is off
+    by default: HammerDB 6.0 keeps every sample in memory for the whole run
+    (about 300 bytes per transaction, roughly 450 MB per hour at 10k NOPM).
+    Enable it with `HAMMERDB_TIMEPROFILE=true` in `/etc/parmaham/parmaham.conf`
+    on nodes with enough free memory.
   * Clicking any run in **Recent runs** shows the same summary and the tail of
     that run's log.
 * **Operating system:** pressure stall information (CPU, memory and IO

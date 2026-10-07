@@ -61,7 +61,8 @@ restore_workload() {
 trap restore_workload EXIT
 trap 'write_status idle note "capacity measurement interrupted"; exit 130' INT TERM
 
-export PMH_VU=$CAPACITY_VU PMH_RAMPUP=$CAPACITY_RAMPUP PMH_DURATION=$CAPACITY_DURATION PMH_PACE_MS=0
+export PMH_VU=$CAPACITY_VU PMH_RAMPUP=$CAPACITY_RAMPUP PMH_DURATION=$CAPACITY_DURATION PMH_PACE_MS=0 \
+       PMH_TIMEPROFILE=$HAMMERDB_TIMEPROFILE
 STARTED=$(date -u +%FT%TZ)
 LOGFILE=$PMH_LOG/capacity.log
 write_status capacity started_at "$STARTED" vu "$CAPACITY_VU" \
