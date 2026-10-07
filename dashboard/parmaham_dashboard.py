@@ -600,6 +600,9 @@ SECRET = [
 ]
 REPORT_BEGIN = re.compile(r"^PARMAHAM_BEGIN (\w+)$")
 REPORT_END = re.compile(r"^PARMAHAM_END (\w+)$")
+# transaction counter samples HammerDB prints every 10 s ("24756 MySQL tpm");
+# they are charted from the job report, so the log views hide them
+TCOUNT_LINE = re.compile(r"^\d+ \S+ tpm$")
 CONTROL = re.compile(r"\x1b\[[0-9;]*[A-Za-z]|[\x00-\x08\x0b-\x1f\x7f]")
 
 
@@ -633,11 +636,11 @@ def tail_log(name, lines):
     try:
         with open(path, "rb") as f:
             st = os.fstat(f.fileno())
-            f.seek(max(0, st.st_size - lines * 200))
+            f.seek(max(0, st.st_size - lines * 600))  # room for hidden counter lines
             data = f.read().decode(errors="replace").splitlines()
     except OSError:
         return None
-    data = [clean_line(x) for x in data if x.strip()]
+    data = [clean_line(x) for x in data if x.strip() and not TCOUNT_LINE.match(x.strip())]
     return {"file": name, "size": st.st_size, "mtime": st.st_mtime, "lines": data[-lines:]}
 
 
@@ -786,7 +789,13 @@ def parse_report(blocks):
                         pts.append([time.mktime(time.strptime(ts, "%Y-%m-%d %H:%M:%S")), float(v)])
                     except (ValueError, TypeError):
                         pass
-                rep["tcount"] = {"label": label, "points": sorted(pts)}
+                pts.sort()
+                # the counter records 0 before the first and after the last sample
+                while pts and pts[0][1] == 0:
+                    pts.pop(0)
+                while pts and pts[-1][1] == 0:
+                    pts.pop()
+                rep["tcount"] = {"label": label, "points": pts}
                 break
     return rep
 
