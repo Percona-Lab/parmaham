@@ -727,7 +727,7 @@ function renderRuns() {
 const TX_NAMES = { NEWORD: "New order", PAYMENT: "Payment", DELIVERY: "Delivery", SLEV: "Stock level", OSTAT: "Order status" };
 function fmtMs(v) { return v == null || isNaN(v) ? "–" : v >= 100 ? v.toFixed(0) : v >= 10 ? v.toFixed(1) : v.toFixed(2); }
 function xtSummary(text) {
-  return text ? `<details style="margin-top:8px" open><summary class="latnote" style="cursor:pointer">HammerDB time profile summary (hdbxtprofile.log)</summary><pre class="log" style="height:auto;max-height:340px;margin-top:6px">${esc(text)}</pre></details>` : "";
+  return text ? `<details style="margin-top:8px"><summary class="latnote" style="cursor:pointer">HammerDB time profile summary (hdbxtprofile.log)</summary><pre class="log" style="height:auto;max-height:340px;margin-top:6px">${esc(text)}</pre></details>` : "";
 }
 function latencyTable(timing) {
   if (!timing || !timing.length) return `<div class="latnote">No response-time profile for this run. Profiling is off unless HAMMERDB_TIMEPROFILE=true in /etc/parmaham/parmaham.conf (it costs HammerDB memory).</div>`;
