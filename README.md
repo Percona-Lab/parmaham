@@ -167,7 +167,7 @@ Runs a public dashboard with no login, by design. It shows:
   hand.
 * **Operating system:** pressure stall information (CPU, memory and IO
   `some`/`full`), CPU breakdown including steal, load and run queue, memory and
-  swap, disk IOPS, throughput and utilization, network, context switches and
+  swap usage, swap-in/swap-out rate, disk IOPS, throughput and utilization, network, context switches and
   major faults.
 * **Environment:** hardware (CPU model and topology, NUMA, memory, disks, NICs,
   virtualization and system vendor), OS and kernel, and the database

@@ -103,6 +103,7 @@ def load_db_collector():
 # ---------------------------------------------------------------------------
 # OS metrics from /proc
 # ---------------------------------------------------------------------------
+PAGE_SIZE = os.sysconf("SC_PAGE_SIZE")
 CPU_FIELDS = ["user", "nice", "system", "idle", "iowait", "irq", "softirq", "steal"]
 
 
@@ -138,6 +139,7 @@ def os_counters():
     s["mem_cached"] = mem.get("Cached", 0) + mem.get("Buffers", 0)
     s["mem_dirty"] = mem.get("Dirty", 0)
     s["swap_used"] = mem.get("SwapTotal", 0) - mem.get("SwapFree", 0)
+    s["swap_total"] = mem.get("SwapTotal", 0)
 
     vm = {}
     with open("/proc/vmstat") as f:
@@ -200,10 +202,12 @@ def os_derived(prev, cur, dt):
     out["cpu_busy"] = 100.0 - out["cpu_idle"] - out["cpu_iowait"]
     out["ctx_switches"] = (cur["ctx_switches"] - prev["ctx_switches"]) / dt
     for k in ("procs_running", "procs_blocked", "load1", "load5", "load15",
-              "mem_total", "mem_used", "mem_available", "mem_cached", "mem_dirty", "swap_used"):
+              "mem_total", "mem_used", "mem_available", "mem_cached", "mem_dirty", "swap_used", "swap_total"):
         out[k] = cur[k]
     for k in ("swap_in_pages", "swap_out_pages", "major_faults", "net_rx_bytes", "net_tx_bytes"):
         out[k] = max(0, cur[k] - prev[k]) / dt
+    out["swap_in_bytes"] = out["swap_in_pages"] * PAGE_SIZE
+    out["swap_out_bytes"] = out["swap_out_pages"] * PAGE_SIZE
 
     reads = writes = rbytes = wbytes = 0
     util = 0.0
