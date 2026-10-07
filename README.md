@@ -154,6 +154,10 @@ Runs a public dashboard with no login, by design. It shows:
     (about 300 bytes per transaction, roughly 450 MB per hour at 10k NOPM).
     Enable it with `HAMMERDB_TIMEPROFILE=true` in `/etc/parmaham/parmaham.conf`
     on nodes with enough free memory.
+  * It includes HammerDB's standard job report: the result lines, database
+    version, job ID, the run's HammerDB settings, and a TPM-over-time chart from
+    HammerDB's transaction counter (sampled every 10 s). With profiling on, it
+    also includes the profiler's own text summary from `hdbxtprofile.log`.
   * Clicking any run in **Recent runs** shows the same summary and the tail of
     that run's log.
 * **Operating system:** pressure stall information (CPU, memory and IO

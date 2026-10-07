@@ -564,7 +564,10 @@ SECRET = [
     (re.compile(r"(_pass(?:word)? from ).* to .* for "), r"\1*** to *** for "),
     (re.compile(r"^Value .* for ([a-z_:]*_pass(?:word)?) is the same as existing value .*, no change"),
      r"Value *** for \1 is the same as existing value ***, no change"),
+    (re.compile(r'("[a-z_]*_pass(?:word)?": *")[^"]*"'), r'\1***"'),
 ]
+REPORT_BEGIN = re.compile(r"^PARMAHAM_BEGIN (\w+)$")
+REPORT_END = re.compile(r"^PARMAHAM_END (\w+)$")
 CONTROL = re.compile(r"\x1b\[[0-9;]*[A-Za-z]|[\x00-\x08\x0b-\x1f\x7f]")
 
 
@@ -636,21 +639,24 @@ def summarize_log(name):
         return SUMMARY_CACHE_LOG["value"]
     out = {"file": name, "size": st.st_size, "mtime": st.st_mtime,
            "vu_success": 0, "vu_failed": 0, "errors": [], "error_count": 0, "complete": False}
-    timing, in_timing = [], False
+    blocks, block = {}, None
     try:
         with open(path, errors="replace") as f:
             for raw in f:
                 line = clean_line(raw)
                 if not line:
                     continue
-                if line == "PARMAHAM_TIMING_BEGIN":
-                    in_timing = True
+                # HammerDB job report sections (older logs: TIMING markers)
+                m = REPORT_BEGIN.match(line)
+                if m or line == "PARMAHAM_TIMING_BEGIN":
+                    block = m.group(1) if m else "timing"
+                    blocks[block] = []
                     continue
-                if line == "PARMAHAM_TIMING_END":
-                    in_timing = False
+                if REPORT_END.match(line) or line == "PARMAHAM_TIMING_END":
+                    block = None
                     continue
-                if in_timing:
-                    timing.append(line)
+                if block:
+                    blocks[block].append(line)
                     continue
                 for k, rx in SUMMARY_PATTERNS.items():
                     if k not in out:
@@ -675,7 +681,13 @@ def summarize_log(name):
             out[k] = int(out[k])
     if "pace_ms" in out:
         out["pace_ms"] = float(out["pace_ms"])
-    out["timing"] = parse_timing(timing)
+    out["timing"] = parse_timing(blocks.get("timing"))
+    out["report"] = parse_report(blocks)
+    # HammerDB time profiler text report: keep its header and the summary of
+    # all virtual users (the per-VU sections stay in the log)
+    xt = blocks.get("xtprofile") or []
+    start = next((i for i, l in enumerate(xt) if "SUMMARY OF" in l), None)
+    out["xtprofile_summary"] = "\n".join(xt[:1] + xt[start:]) if start is not None else None
     SUMMARY_CACHE_LOG.update(key=key, value=out)
     return out
 
@@ -696,8 +708,8 @@ def parse_timing(lines):
     rows = []
     for proc in sorted(data, key=lambda p: (TIMING_ORDER.index(p) if p in TIMING_ORDER else 99, p)):
         v = data[proc]
-        if not isinstance(v, dict):
-            continue
+        if not isinstance(v, dict) or "calls" not in v:
+            continue  # e.g. {"<jobid>": {"Jobid": "has", "no": "timing", ...}}
         row = {"proc": proc}
         for k, x in v.items():
             try:
@@ -706,6 +718,45 @@ def parse_timing(lines):
                 pass
         rows.append(row)
     return rows or None
+
+
+def parse_json_block(lines):
+    if not lines:
+        return None
+    try:
+        return json.loads("\n".join(lines))
+    except ValueError:
+        return None
+
+
+def parse_report(blocks):
+    """HammerDB's standard job report (jobs <id> result/db/dict/tcount)."""
+    if not any(k in blocks for k in ("result", "dict", "tcount")):
+        return None
+    rep = {"jobid": parse_json_block(blocks.get("jobid"))}
+    res = parse_json_block(blocks.get("result"))
+    if isinstance(res, list):
+        rep["result"] = [str(x) for x in res]
+    db = parse_json_block(blocks.get("db"))
+    if isinstance(db, list):
+        rep["db"] = " ".join(str(x) for x in db)
+    cfg = parse_json_block(blocks.get("dict"))
+    if isinstance(cfg, dict):
+        rep["config"] = cfg
+    tc = parse_json_block(blocks.get("tcount"))
+    if isinstance(tc, dict):
+        # {"MySQL tpm": {"YYYY-MM-DD HH:MM:SS": "n", ...}} (local time)
+        for label, series in tc.items():
+            if isinstance(series, dict):
+                pts = []
+                for ts, v in series.items():
+                    try:
+                        pts.append([time.mktime(time.strptime(ts, "%Y-%m-%d %H:%M:%S")), float(v)])
+                    except (ValueError, TypeError):
+                        pass
+                rep["tcount"] = {"label": label, "points": sorted(pts)}
+                break
+    return rep
 
 
 def current_log_name():

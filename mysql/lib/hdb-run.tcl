@@ -55,19 +55,41 @@ vuset unique 0
 vuset showoutput 1
 vuset vu $vu
 vucreate
+# HammerDB's transaction counter samples TPM every 10 s into the job, for the
+# TPM-over-time chart of the run's report (one small query per sample)
+catch { tcstart }
 set runout [vurun]
+catch { tcstop }
 vudestroy
 # vurun returns "Benchmark Run jobid=<id>"
 regexp {jobid=([0-9A-F]+)} $runout -> jobid
 
 # The caller parses the "TEST RESULT : System achieved N NOPM from M MySQL TPM"
 # line that the monitor virtual user prints.
-# The HammerDB job database would otherwise grow forever on a permanent run
+#
+# HammerDB's standard job report is copied into the log as JSON between
+# PARMAHAM_BEGIN/END markers for the dashboard: result, database version,
+# configuration (dict; the password is masked by the caller), the transaction
+# counter (tcount) and, when profiling is on, response times (timing).
+# The job is then deleted: the job database would otherwise grow forever.
 if { [info exists jobid] } {
-    # per-transaction response times (calls, avg, p25..p99, max) as JSON
-    puts "PARMAHAM_TIMING_BEGIN"
-    catch { jobs $jobid timing }
-    puts "PARMAHAM_TIMING_END"
+    puts "PARMAHAM_BEGIN jobid"
+    puts "\"$jobid\""
+    puts "PARMAHAM_END jobid"
+    foreach part {result db dict tcount timing} {
+        puts "PARMAHAM_BEGIN $part"
+        catch { jobs $jobid $part }
+        puts "PARMAHAM_END $part"
+    }
+    # with profiling on, the profiler's own text report (per virtual user
+    # plus ">>>>> SUMMARY OF n ACTIVE VIRTUAL USERS") is written to TMP,
+    # which is removed after the run, so copy it into the log
+    set xt [file join $::env(TMP) hdbxtprofile.log]
+    if { [file exists $xt] } {
+        puts "PARMAHAM_BEGIN xtprofile"
+        catch { set f [open $xt]; puts -nonewline [read $f]; close $f }
+        puts "PARMAHAM_END xtprofile"
+    }
     catch { jobs $jobid delete }
 }
 exit

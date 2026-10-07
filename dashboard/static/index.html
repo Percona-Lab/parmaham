@@ -159,6 +159,13 @@ table.lat td { text-align: right; padding: 4px 0 4px 10px; border-top: 1px solid
 table.lat th:first-child, table.lat td:first-child { text-align: left; padding-left: 0; }
 table.lat td.p95 { font-weight: 650; }
 .latnote { color: var(--faint); font-size: 11.5px; margin-top: 4px; }
+.hdbrep { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; background: var(--panel-2); }
+.hdbrep .resl { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12.5px; }
+.hdbrep .resl div:last-child { font-weight: 650; }
+.hdbrep .chart { height: 150px; margin-top: 8px; }
+.hdbrep details { margin-top: 8px; font-size: 12.5px; }
+.hdbrep summary { cursor: pointer; color: var(--muted); }
+.hdbrep table.kv td { padding: 3px 0; }
 .errs { margin: 4px 0 0; padding: 0; list-style: none; }
 .errs li { color: var(--bad); font-size: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; word-break: break-word; }
 footer { color: var(--faint); font-size: 12px; margin-top: 28px; text-align: center; }
@@ -559,8 +566,12 @@ async function pollLog() {
 async function pollLastRun() {
   try { renderLastRun(await getJSON("/api/lastrun")); } catch (e) {}
 }
+let lrReport = null, lrKey = null;
 function renderLastRun(d) {
   const r = d.result, s = d.summary;
+  const key = JSON.stringify([r && r.iteration, s && s.file, s && s.size]);
+  if (key === lrKey) { if (r) $("lr-when").textContent = `finished ${ago(parseTs(r.finished_at))}`; return; }
+  lrKey = key;
   if (!r && !s) { $("i-lastrun").innerHTML = kv([["Status", "No HammerDB execution completed yet."]]); $("lr-when").textContent = ""; return; }
   const ratio = r && r.ok && r.target_nopm ? 100 * r.nopm / r.target_nopm : null;
   const started = r ? parseTs(r.started_at) : null, finished = r ? parseTs(r.finished_at) : null;
@@ -579,7 +590,9 @@ function renderLastRun(d) {
     ["Versions", s && (s.hammerdb_version || s.db_version) ? `HammerDB ${esc(s.hammerdb_version || "?")} · MySQL ${esc(s.db_version || "?")}` : null],
     ["Errors", s ? (s.error_count ? `<span class="down">${s.error_count} error line${s.error_count > 1 ? "s" : ""}</span><ul class="errs">${s.errors.map((e) => `<li>${esc(e)}</li>`).join("")}</ul>` : '<span class="up">none</span>') : null],
     ["Log", s ? `<span class="mono">${esc(s.file)}</span> · ${fmtBytes(s.size)}` : null],
-  ]) + `<tr><td colspan="2" style="padding-top:10px;width:auto;color:var(--text)">${latencyTable(s && s.timing)}</td></tr>`;
+  ]) + `<tr><td colspan="2" style="padding-top:10px;width:auto;color:var(--text)">${(lrReport = reportBlock(s && s.report)).html || lrReport}</td></tr>` +
+    `<tr><td colspan="2" style="padding-top:10px;width:auto;color:var(--text)">${latencyTable(s && s.timing)}${xtSummary(s && s.xtprofile_summary)}</td></tr>`;
+  if (lrReport.mount) lrReport.mount();
 }
 async function pollStatus() {
   try {
@@ -682,11 +695,40 @@ function renderRuns() {
 
 const TX_NAMES = { NEWORD: "New order", PAYMENT: "Payment", DELIVERY: "Delivery", SLEV: "Stock level", OSTAT: "Order status" };
 function fmtMs(v) { return v == null || isNaN(v) ? "–" : v >= 100 ? v.toFixed(0) : v >= 10 ? v.toFixed(1) : v.toFixed(2); }
+function xtSummary(text) {
+  return text ? `<details style="margin-top:8px" open><summary class="latnote" style="cursor:pointer">HammerDB time profile summary (hdbxtprofile.log)</summary><pre class="log" style="height:auto;max-height:340px;margin-top:6px">${esc(text)}</pre></details>` : "";
+}
 function latencyTable(timing) {
   if (!timing || !timing.length) return `<div class="latnote">No response-time profile for this run. Profiling is off unless HAMMERDB_TIMEPROFILE=true in /etc/parmaham/parmaham.conf (it costs HammerDB memory).</div>`;
   return `<div class="scroll"><table class="lat"><tr><th>Transaction (ms)</th><th>Calls</th><th>Avg</th><th>P25</th><th>P50</th><th>P75</th><th>P95</th><th>P99</th><th>Max</th><th>Share</th></tr>` +
     timing.map((t) => `<tr><td title="${esc(t.proc)}">${esc(TX_NAMES[t.proc] || t.proc)}</td><td>${fmtInt(t.calls)}</td><td>${fmtMs(t.avg_ms)}</td><td>${fmtMs(t.p25_ms)}</td><td>${fmtMs(t.p50_ms)}</td><td>${fmtMs(t.p75_ms)}</td><td class="p95">${fmtMs(t.p95_ms)}</td><td>${fmtMs(t.p99_ms)}</td><td>${fmtMs(t.max_ms)}</td><td>${t.ratio_pct != null ? t.ratio_pct.toFixed(1) + "%" : "–"}</td></tr>`).join("") +
     `</table></div><div class="latnote">HammerDB time profile over the whole run, warm-up included. Share = portion of total time spent in that transaction.</div>`;
+}
+// HammerDB's standard job report: result, database, job id, settings, transaction counter
+const KEY_SETTINGS = [["driver", "Driver"], ["rampup", "Rampup (min)"], ["duration", "Duration (min)"], ["allwarehouse", "All warehouses"],
+  ["keyandthink", "Keying & thinking time"], ["prepared", "Prepared statements"], ["timeprofile", "Time profile"],
+  ["async_scale", "Asynchronous scaling"], ["connect_pool", "Connection pool"], ["storage_engine", "Storage engine"], ["dbase", "Database"]];
+let reportSeq = 0;
+function reportBlock(rep) {
+  if (!rep) return `<div class="latnote">No HammerDB job report in this run's log (reports are recorded for runs started after 2026-10-07 10:30 UTC).</div>`;
+  const cfg = rep.config || {}, tpcc = cfg.tpcc || {}, flat = {};
+  for (const sect of Object.values(cfg)) if (sect && typeof sect === "object") for (const [k, v] of Object.entries(sect)) flat[k] = v;
+  const setting = (k) => { const key = Object.keys(tpcc).find((x) => x.endsWith("_" + k)); return key ? tpcc[key] : null; };
+  const id = "rtc" + (++reportSeq);
+  const html = `<div class="hdbrep">
+    <div class="resl">${(rep.result || []).slice(2).map((l) => `<div>${esc(l)}</div>`).join("") || "<div>no result recorded</div>"}</div>
+    <table class="kv" style="margin-top:6px">${kv([["Job ID", rep.jobid ? `<span class="mono">${esc(rep.jobid)}</span>` : null],
+      ["Started (HammerDB)", rep.result && rep.result[1] ? esc(rep.result[1]) : null], ["Database", esc(rep.db)],
+      ["Settings", KEY_SETTINGS.map(([k, n]) => setting(k) != null ? `${n}: <b>${esc(setting(k))}</b>` : null).filter(Boolean).join(" · ")]])}</table>
+    ${rep.tcount && rep.tcount.points.length > 1 ? `<div class="chart" id="c-${id}"></div><div class="legend" id="l-${id}"></div>` : ""}
+    <details><summary>All HammerDB settings for this run (${Object.keys(flat).length})</summary><table class="kv">${kv(Object.entries(flat).map(([k, v]) => [k, `<span class="mono">${esc(v)}</span>`]))}</table></details>
+  </div>`;
+  return { html, mount: () => {
+    if (!rep.tcount || rep.tcount.points.length < 2) return;
+    const pts = rep.tcount.points.map(([t, v]) => ({ t, tpm: v }));
+    new Chart("c-" + id, [M("tpm", `${rep.tcount.label || "TPM"} (HammerDB transaction counter)`, "--c2", { fill: true, width: 1.8 })], { fmt: fmtNum, minPoints: 2 })
+      .set(pts, pts[0].t, pts[pts.length - 1].t, 10);
+  } };
 }
 function runLogName(r) {
   if (r.log) return r.log;
@@ -713,8 +755,10 @@ async function openRunLog(name, idx) {
     ]);
     const errs = s.errors && s.errors.length ? `<h4>First errors (usually the cause)</h4><ul class="errs">${s.errors.map((e) => `<li>${esc(e)}</li>`).join("")}</ul>` : "";
     const body = t.lines.length ? t.lines.map((l) => { const c = logClass(l); return c ? `<span class="${c}">${esc(l)}</span>` : esc(l); }).join("\n") : "log file not found (only the newest 200 run logs are kept)";
-    $("dlg-body").innerHTML = `<table class="kv">${facts}</table><h4>Response times by transaction</h4>${latencyTable(s.timing)}${errs}<h4>Last ${t.lines.length} lines${t.size ? " · " + fmtBytes(t.size) : ""}</h4><pre class="log" id="dlg-log">${body}</pre>`;
+    const rb = reportBlock(s.report);
+    $("dlg-body").innerHTML = `<table class="kv">${facts}</table><h4>HammerDB report</h4>${rb.html || rb}<h4>Response times by transaction</h4>${latencyTable(s.timing)}${xtSummary(s.xtprofile_summary)}${errs}<h4>Last ${t.lines.length} lines${t.size ? " · " + fmtBytes(t.size) : ""}</h4><pre class="log" id="dlg-log">${body}</pre>`;
     const pre = $("dlg-log"); pre.scrollTop = pre.scrollHeight;
+    if (rb.mount) rb.mount();
   } catch (e) { $("dlg-body").textContent = "Could not load the log: " + e.message; }
 }
 $("dlg-close").onclick = () => $("logdlg").close();

@@ -163,7 +163,8 @@ hammerdb_cli() {
 
 mask_passwords() {
     sed -u -E -e 's/(_pass(word)? from ).* to .* for /\1*** to *** for /' \
-              -e 's/^Value .* for ([a-z_:]*_pass(word)?) is the same as existing value .*, no change/Value *** for \1 is the same as existing value ***, no change/'
+              -e 's/^Value .* for ([a-z_:]*_pass(word)?) is the same as existing value .*, no change/Value *** for \1 is the same as existing value ***, no change/' \
+              -e 's/("[a-z_]*_pass(word)?": *")[^"]*"/\1***"/'
 }
 
 # Run a timed HammerDB test, logging to $2. Prints "NOPM TPM" on success.
