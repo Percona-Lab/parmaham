@@ -5,6 +5,10 @@ days, weeks or months, at a controlled share of what the machine can do. Use it
 for demos, and to see how an environment behaves over a long period: whether
 performance drifts, stalls or degrades over time.
 
+Every node gets a public dashboard, and a separate compare page shows any two
+nodes side by side, for example the same workload on MariaDB and on
+PostgreSQL. See [CHANGELOG.md](CHANGELOG.md) for what changed recently.
+
 Supported databases, one per node, each in its own directory:
 
 | Directory | Database | Default version |
@@ -24,7 +28,8 @@ parmaham/
 │   ├── workload-loop.sh, purge.sh the workload and purge services
 │   └── hdb-*.tcl                  HammerDB build and run scripts
 ├── config/                        defaults + example /etc/parmaham/parmaham.conf
-├── dashboard/                     public web dashboard (Python standard library only)
+├── dashboard/                     public web dashboard (Python standard library only);
+│                                  static/chart.js and style.css are shared with compare/
 ├── compare/                       side-by-side comparison of two Parma Ham hosts
 ├── mysql/  mariadb/  postgresql/  one directory per database:
 │   ├── database-install.sh        install + tune the database server for this node
@@ -49,6 +54,14 @@ $DB/compute-capacity.sh --background       # ~46 minutes: journalctl -fu parmaha
 $DB/install-workload.sh                    # run at 50% of capacity, forever
 $DB/install-hammerdb-purge.sh              # keep only the last 24h of new data
 dashboard/install-dashboard.sh             # http://<host>/
+```
+
+To compare nodes, run the compare page on any machine that can reach their
+dashboards (a 1 GB VM is enough):
+
+```bash
+compare/install-compare.sh --add http://<node-1>/ --name "MariaDB"
+compare/install-compare.sh --add http://<node-2>/ --name "PostgreSQL"      # http://<this-host>/
 ```
 
 Each step prints the next one. Every script supports `--help`. Only the
@@ -226,7 +239,11 @@ Runs a public dashboard with no login, by design. It shows:
     that run's log.
 * **Processes:** CPU in use (cores) for the database server (`mysqld`,
   `mariadbd`, or every `postgres` process of the service) and HammerDB, plus memory
-  (VSZ, RSS, PSS + SwapPSS) for each. HammerDB covers every process in the
+  (VSZ, RSS, PSS + SwapPSS) for each. Values that cannot all be resident are
+  named but not plotted, so they do not flatten the chart: VSZ far above RAM
+  plus swap (MariaDB reserves address space for `innodb_buffer_pool_size_max`)
+  and RSS above RAM (PostgreSQL's RSS summed over its processes counts shared
+  buffers once per process; PSS shares them out correctly). HammerDB covers every process in the
   workload and capacity services (`hammerdbcli` with one thread per virtual
   user, plus the loop script and log filter) and any `hammerdbcli` started by
   hand.
@@ -249,12 +266,15 @@ Database metrics per database:
 | Redo log | `Innodb_os_log_written`, LSN − checkpoint LSN | `Innodb_os_log_written`, `Innodb_checkpoint_age` | WAL written (LSN advance), WAL since the last checkpoint's redo point |
 | Undo history & lock waits | history list length, row lock waits/s | same | dead tuples not yet vacuumed (`n_dead_tup`), sessions waiting on a lock |
 
-Each `dashboard_collector.py` documents its mapping.
+Each `dashboard_collector.py` documents its mapping. Chart titles and series
+names come from the collector's `LABELS`, so each database's metrics appear
+under its own names on both the dashboard and the compare page.
 
 Implementation notes:
 
-* Written in plain Python 3 with one static HTML page. It uses no third-party
-  packages and loads nothing from a CDN, so it works on isolated networks.
+* Written in plain Python 3 with one static HTML page (`static/index.html`)
+  plus `chart.js` and `style.css`, which the compare page shares. It uses no
+  third-party packages and loads nothing from a CDN, so it works on isolated networks.
 * Metrics are sampled every 5 s; the 5m, 15m and 1h views use those samples
   (kept in memory for 1 h).
 * The 3h and 24h views use 1-minute averages kept for 24 h. They are saved in
@@ -262,12 +282,14 @@ Implementation notes:
 * PSS and SwapPSS need ptrace access to the database server. A separate helper,
   `parmaham-procmem.service`, reads them; it has `CAP_SYS_PTRACE` but no
   network access, so the public dashboard needs no privileges.
-* Runs as a systemd `DynamicUser` with a read-only filesystem view. The
-  monitoring credentials are passed in with `LoadCredential`.
-* JSON API: `/api/info`, `/api/status`, `/api/metrics?since=<epoch>`,
-  `/api/results?limit=N`.
+* Runs as the unprivileged system user `parmaham-web` with a read-only
+  filesystem view. The monitoring credentials are passed in with `LoadCredential`.
+* JSON API (read-only; the compare page uses it): `/api/info`, `/api/status`,
+  `/api/metrics?since=<epoch>` (5 s samples; add `&res=60` for 1-minute
+  averages), `/api/results?limit=N`, `/api/lastrun`, `/api/runlog?name=<log>`,
+  `/api/log?which=current|last`.
 
-### `compare/install-compare.sh [--add URL [--name NAME]] [--remove URL] [--port 80]`
+### `compare/install-compare.sh [--add URL [--name NAME]] [--remove URL] [--list] [--port 80] [--uninstall]`
 
 A second page that shows any two Parma Ham workloads side by side, for
 example MariaDB on one node and PostgreSQL on another. It needs no database,
@@ -294,15 +316,26 @@ compare/install-compare.sh --add http://192.0.2.11/ --name "PostgreSQL 18"   # h
   read, MVCC backlog, lock waits) the chart is split into one chart per host,
   each with its own axis; otherwise each host's own metric name is shown in the legend.
 * **Configuration:** workload settings and each database's settings side by side.
+* Both hosts are put on one time grid (5 s buckets up to the 1h view, 1-minute
+  averages for 3h and 24h); the charts draw across the occasional bucket in
+  which one host has no sample.
+* A host that cannot be reached is marked in the host list and in a banner;
+  the other host keeps updating.
 * The server only proxies the read-only API (`info`, `status`, `metrics`,
-  `results`, `lastrun`) of the listed hosts, so the viewer's browser needs to
-  reach only the compare page. Host clocks should be in sync (NTP).
+  `results`, `lastrun`) of the listed hosts, so the page cannot be used as an
+  open proxy and the viewer's browser needs to reach only the compare page.
+  Identical requests from several viewers within 2 s share one upstream request.
+  Its own API: `/api/hosts` and `/api/h/<n>/<path>`.
+* Host clocks should be in sync (NTP): runs are lined up by wall-clock time.
+* Runs as `parmaham-compare.service` (user `parmaham-web`), port and address
+  from `COMPARE_PORT` / `COMPARE_BIND` in `/etc/parmaham/parmaham.conf`.
 
 ## Files and services
 
 | Path | Contents |
 |------|----------|
 | `/etc/parmaham/parmaham.conf` | settings (all defaults: `config/parmaham.conf.defaults`); flags passed to scripts are saved here |
+| `/etc/parmaham/compare-hosts` | hosts shown on the compare page (`URL [name]` per line) |
 | `/etc/parmaham/<db>-*.cnf` | database credentials, e.g. `mysql-admin.cnf` (admin 0600, bench 0640 root:parmaham, monitor 0600) |
 | `/opt/parmaham` | installed copy of this repository plus HammerDB |
 | `/var/lib/parmaham` | `capacity.json`, `schema.json`, `status.json`, `results.jsonl` (one line per run), `pace-correction` |
@@ -327,6 +360,24 @@ systemctl list-timers parmaham-purge.timer
 mysql/install-workload.sh --percent 70    # change the load level (restarts the loop; use your database's directory)
 ```
 
+## Upgrading an existing installation
+
+Nodes installed before multi-database support (MySQL only, scripts in `mysql/`)
+keep working after an update: the credential files and state keep their names,
+and `mysql/lib/workload-loop.sh` and `mysql/lib/purge.sh` remain as small
+wrappers for the units that still point at them. To move the units to the new
+paths and pick up the new dashboard:
+
+```bash
+git pull
+mysql/install-workload.sh            # restarts the workload loop (the current iteration is lost)
+mysql/install-hammerdb-purge.sh
+dashboard/install-dashboard.sh
+```
+
+`PMH_DB` defaults to `mysql`, so an existing `/etc/parmaham/parmaham.conf`
+needs no change.
+
 ## Adding another database
 
 Create a directory named after the database and add it to `PMH_DATABASES` in
@@ -342,7 +393,9 @@ Create a directory named after the database and add it to `PMH_DATABASES` in
   connection, credentials and the prefix of HammerDB's settings;
 * `dashboard_collector.py` with a `Collector` class (`info()`, `sample()`), the
   `RATES`/`GAUGES` maps, `PROCESS` and optional `LABELS` (see the top of
-  `mysql/dashboard_collector.py`);
+  `mysql/dashboard_collector.py`). Provide every sample key listed there; where
+  the database has no exact equivalent, return the closest metric and name it
+  in `LABELS`;
 * links to the four common scripts (`ln -s ../common/compute-capacity.sh ...`).
 
 The workload loop, purge timer, status files and dashboard do not depend on
@@ -376,6 +429,11 @@ For every database the install, schema build, capacity measurement,
 workload service, purge (timer and a forced purge that deleted 74k to 211k
 orders next to the running workload) and dashboard worked, with no JavaScript
 errors in light and dark themes or at phone width.
+
+The compare page was tested on a 1 GB Linode (Ubuntu 24.04) comparing those
+MariaDB, PostgreSQL and Percona Server nodes: host selection, swap, all time
+ranges, an unreachable host, and light, dark and phone layouts without
+JavaScript errors.
 
 Not tested yet: MariaDB and PostgreSQL on RHEL/Rocky, Debian 12, aarch64,
 and multi-day runs with MariaDB and PostgreSQL.
