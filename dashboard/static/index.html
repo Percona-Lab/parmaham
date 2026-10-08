@@ -415,10 +415,24 @@ class Chart {
       g.stroke(); g.setLineDash([]);
       if (s.fill || this.opts.stacked) {
         g.globalAlpha = this.opts.stacked ? .35 : .12; g.fillStyle = color; g.beginPath();
-        let started = false;
-        pts.forEach((pt, i) => { if (!pt) return; if (!started) { g.moveTo(pt[0], Y(base[i])); started = true; } g.lineTo(pt[0], pt[1]); });
-        for (let i = pts.length - 1; i >= 0; i--) if (pts[i]) g.lineTo(pts[i][0], Y(base[i]));
-        g.closePath(); g.fill(); g.globalAlpha = 1;
+        // one filled area per stretch of the line, so gaps stay empty
+        // (stacked charts fill across gaps: every series shares the base)
+        let run = [], last = null;
+        const flush = () => {
+          if (run.length) {
+            g.moveTo(run[0][0], Y(base[run[0][3]]));
+            for (const pt of run) g.lineTo(pt[0], pt[1]);
+            for (let k = run.length - 1; k >= 0; k--) g.lineTo(run[k][0], Y(base[run[k][3]]));
+            g.closePath();
+          }
+          run = [];
+        };
+        pts.forEach((pt, i) => {
+          if (!this.opts.stacked && (!pt || (last != null && data[i].t - last > gapLimit))) flush();
+          if (pt) { run.push([pt[0], pt[1], pt[2], i]); last = data[i].t; }
+        });
+        flush();
+        g.fill(); g.globalAlpha = 1;
       }
       if (s.points) {
         g.fillStyle = color;

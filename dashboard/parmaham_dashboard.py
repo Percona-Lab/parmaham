@@ -351,6 +351,7 @@ class ProcessStats:
     def __init__(self, names):
         self.names = names            # {process name: key prefix}
         self.prev = {}                # name -> (pid, cpu_sec, t)
+        self.rate = {}                # name -> last CPU rate (cores)
 
     def sample(self, max_age):
         data = read_json(PROCMEM_FILE)
@@ -361,6 +362,7 @@ class ProcessStats:
             p = data.get("procs", {}).get(name)
             if not p:
                 self.prev.pop(name, None)
+                self.rate.pop(name, None)
                 continue
             out[pre + "_vsz"] = p.get("vsz")
             out[pre + "_rss"] = p.get("rss")
@@ -370,8 +372,16 @@ class ProcessStats:
                 prev = self.prev.get(name)
                 if prev and data["t"] > prev[2]:
                     delta = p["cpu_sec"] - prev[1]
-                    if delta >= 0:  # a restarted process or service resets the counter
-                        out[pre + "_cpu"] = delta / (data["t"] - prev[2])
+                    # a restarted process or service resets the counter
+                    self.rate[name] = delta / (data["t"] - prev[2]) if delta >= 0 else None
+                elif not prev:
+                    self.rate.pop(name, None)
+                # procmem.py and this sampler both run every few seconds and
+                # drift in and out of step: when procmem.json has not been
+                # rewritten since the last read, repeat the last rate rather
+                # than leaving a gap in the chart
+                if self.rate.get(name) is not None:
+                    out[pre + "_cpu"] = self.rate[name]
                 if not prev or data["t"] > prev[2]:
                     self.prev[name] = (p.get("pid"), p["cpu_sec"], data["t"])
         return {k: v for k, v in out.items() if v is not None}
