@@ -235,19 +235,19 @@ footer { color: var(--faint); font-size: 12px; margin-top: 28px; text-align: cen
 
   <h2>Database <span class="aside" id="db-aside"></span></h2>
   <div class="grid">
-    <div class="panel"><div class="phead"><h3>Transactions &amp; queries</h3></div><div class="chart" id="c-qps"></div><div class="legend" id="l-qps"></div></div>
-    <div class="panel"><div class="phead"><h3>InnoDB row operations</h3></div><div class="chart" id="c-rows"></div><div class="legend" id="l-rows"></div></div>
-    <div class="panel"><div class="phead"><h3>Threads</h3></div><div class="chart" id="c-thr"></div><div class="legend" id="l-thr"></div></div>
-    <div class="panel"><div class="phead"><h3>Buffer pool</h3></div><div class="chart" id="c-bp"></div><div class="legend" id="l-bp"></div></div>
-    <div class="panel"><div class="phead"><h3>Redo log</h3></div><div class="chart" id="c-redo"></div><div class="legend" id="l-redo"></div></div>
-    <div class="panel"><div class="phead"><h3>Undo history &amp; lock waits</h3></div><div class="chart" id="c-hll"></div><div class="legend" id="l-hll"></div></div>
+    <div class="panel"><div class="phead"><h3 id="h-qps">Transactions &amp; queries</h3></div><div class="chart" id="c-qps"></div><div class="legend" id="l-qps"></div></div>
+    <div class="panel"><div class="phead"><h3 id="h-rows">InnoDB row operations</h3></div><div class="chart" id="c-rows"></div><div class="legend" id="l-rows"></div></div>
+    <div class="panel"><div class="phead"><h3 id="h-thr">Threads</h3></div><div class="chart" id="c-thr"></div><div class="legend" id="l-thr"></div></div>
+    <div class="panel"><div class="phead"><h3 id="h-bp">Buffer pool</h3></div><div class="chart" id="c-bp"></div><div class="legend" id="l-bp"></div></div>
+    <div class="panel"><div class="phead"><h3 id="h-redo">Redo log</h3></div><div class="chart" id="c-redo"></div><div class="legend" id="l-redo"></div></div>
+    <div class="panel"><div class="phead"><h3 id="h-hll">Undo history &amp; lock waits</h3></div><div class="chart" id="c-hll"></div><div class="legend" id="l-hll"></div></div>
     <div class="panel"><div class="phead"><h3>Database volume space</h3><span class="cur" id="vol-note"></span></div><div class="chart" id="c-vol"></div><div class="legend" id="l-vol"></div></div>
   </div>
 
   <h2>Processes <span class="aside" id="proc-aside"></span></h2>
   <div class="grid">
     <div class="panel"><div class="phead"><h3>CPU by process</h3><span class="cur">cores in use</span></div><div class="chart" id="c-pcpu"></div><div class="legend" id="l-pcpu"></div></div>
-    <div class="panel"><div class="phead"><h3><span id="proc-name">Server</span> memory</h3><span class="cur">PSS includes swapped-out share</span></div><div class="chart" id="c-pmem"></div><div class="legend" id="l-pmem"></div></div>
+    <div class="panel"><div class="phead"><h3><span id="proc-name">Server</span> memory</h3><span class="cur" id="pmem-note">PSS includes swapped-out share</span></div><div class="chart" id="c-pmem"></div><div class="legend" id="l-pmem"></div></div>
     <div class="panel"><div class="phead"><h3>HammerDB memory</h3><span class="cur">all HammerDB processes combined</span></div><div class="chart" id="c-hmem"></div><div class="legend" id="l-hmem"></div></div>
   </div>
 
@@ -459,6 +459,7 @@ function niceTimeStep(sec) {
 // ---------------------------------------------------------------------------
 const M = (key, name, color, extra = {}) => ({ key, name, color, ...extra });
 const mbps = (v) => fmtBytes(v, "/s");
+const vszShown = (p) => p.proc_vsz != null && !(p.mem_total && p.proc_vsz > 4 * (p.mem_total + (p.swap_total || 0)));
 const charts = {
   tput: new Chart("c-tput", [M("nopm", "NOPM", "--c1", { fill: true, width: 2 }), M("tpm", "TPM", "--c2"), { name: "Target NOPM", color: "--c4", dash: true, get: () => targetNopm }], { gap: 30 }),
   hist: new Chart("c-hist", [M("nopm", "NOPM", "--c1", { points: true, width: 1.4 }), M("target_nopm", "Target", "--c4", { dash: true }), M("tpm", "TPM", "--c2", { width: 1 })],
@@ -480,7 +481,9 @@ const charts = {
   pcpu: new Chart("c-pcpu", [{ key: "proc_cpu", name: "mysqld", color: "--c1", fill: true, width: 2 }, M("hdb_cpu", "HammerDB", "--c2", { width: 2 }), { name: "Node CPUs", color: "--c5", dash: true, get: () => info && info.node ? info.node.cpus : null }],
     { fmt: (v) => v.toFixed(2), empty: "waiting for parmaham-procmem.service…" }),
   hmem: new Chart("c-hmem", [M("hdb_vsz", "VSZ", "--c5"), M("hdb_rss", "RSS", "--c1", { fill: true, width: 2 }), M("hdb_pss_swap", "PSS + SwapPSS", "--c2", { width: 2 })], { fmt: fmtBytes, gap: 30, empty: "HammerDB is not running" }),
-  pmem: new Chart("c-pmem", [M("proc_vsz", "VSZ", "--c5"), M("proc_rss", "RSS", "--c1", { fill: true, width: 2 }), M("proc_pss_swap", "PSS + SwapPSS", "--c2", { width: 2 })], { fmt: fmtBytes, empty: "waiting for parmaham-procmem.service…" }),
+  // VSZ far above RAM + swap is reserved address space (MariaDB reserves
+  // innodb_buffer_pool_size_max), which would flatten the chart: not plotted
+  pmem: new Chart("c-pmem", [{ key: "proc_vsz", name: "VSZ", color: "--c5", get: (p) => vszShown(p) ? p.proc_vsz : null }, M("proc_rss", "RSS", "--c1", { fill: true, width: 2 }), M("proc_pss_swap", "PSS + SwapPSS", "--c2", { width: 2 })], { fmt: fmtBytes, empty: "waiting for parmaham-procmem.service…" }),
   vol: new Chart("c-vol", [M("vol_used", "Used", "--c1", { fill: true, width: 2 }), M("vol_avail", "Available", "--c3"), M("vol_size", "Size", "--c5", { dash: true })], { fmt: fmtBytes, empty: "waiting for database information…" }),
   swap: new Chart("c-swap", [M("swap_in_bytes", "Swap in", "--c1", { fill: true, width: 2 }), M("swap_out_bytes", "Swap out", "--c4", { width: 2 })], { fmt: mbps, minMax: 1048576 }),
   ctx: new Chart("c-ctx", [M("ctx_switches", "Context switches/s", "--c1"), M("major_faults", "Major faults/s", "--c4")]),
@@ -542,11 +545,12 @@ function renderMetrics() {
     $("psi-now").innerHTML = [["CPU some", last.psi_cpu_some], ["Memory full", last.psi_memory_full], ["IO full", last.psi_io_full]]
       .map(([k, v]) => `<div><div class="k">${k}</div><div class="v num" style="color:${v > 10 ? css("--bad") : v > 1 ? css("--warn") : "inherit"}">${fmtPct(v)}</div></div>`).join("");
     $("proc-aside").textContent = last.proc_rss != null ? `${info && info.db_process || "server"} ${fmtBytes(last.proc_pss_swap ?? last.proc_rss)} · HammerDB ${last.hdb_rss != null ? fmtBytes(last.hdb_pss_swap ?? last.hdb_rss) : "not running"}` : "";
+    $("pmem-note").textContent = last.proc_vsz != null && !vszShown(last) ? `VSZ ${fmtBytes(last.proc_vsz)} (reserved address space) not plotted` : dbLabel("pmem_note", LABEL_DEFAULTS.pmem_note);
     $("swap-note").textContent = last.swap_total ? `${fmtBytes(last.swap_used)} of ${fmtBytes(last.swap_total)} used` : "no swap configured";
     const fs = info && info.filesystem;
     $("vol-note").textContent = last.vol_size ? `${fs ? fs.device + " · " + fs.fstype + " · " : ""}${fmtPct(last.vol_used_pct)} used` : "";
     $("os-aside").textContent = `CPU ${fmtPct(last.cpu_busy)} busy · load ${fmtNum(last.load1)} · memory ${fmtBytes(last.mem_used)} of ${fmtBytes(last.mem_total)}`;
-    $("db-aside").textContent = last.db_up ? `${fmtInt(last.db_threads_connected)} connections · history list ${fmtInt(last.db_history_list_length)}` : "database not reachable";
+    $("db-aside").textContent = last.db_up ? `${fmtInt(last.db_threads_connected)} connections · ${dbLabel("history_short", "history list")} ${fmtInt(last.db_history_list_length)}` : "database not reachable";
   }
 }
 function connection(ok) {
@@ -612,7 +616,7 @@ function renderLastRun(d) {
     ["Test period", s && s.duration_min != null ? `${s.rampup_min} min warm-up + ${s.duration_min} min measured` : null],
     ["Virtual users", vu != null ? `${vu}${s ? ` · ${s.vu_success} finished OK${s.vu_failed ? `, <span class="down">${s.vu_failed} failed</span>` : ""}` : ""}` : null],
     ["Pacing", s ? (s.pace_ms ? `one transaction every ${s.pace_ms} ms per virtual user` : "unthrottled") : null],
-    ["Versions", s && (s.hammerdb_version || s.db_version) ? `HammerDB ${esc(s.hammerdb_version || "?")} · MySQL ${esc(s.db_version || "?")}` : null],
+    ["Versions", s && (s.hammerdb_version || s.db_version) ? `HammerDB ${esc(s.hammerdb_version || "?")} · ${esc((info && info.db && info.db.engine) || "database")} ${esc(s.db_version || "?")}` : null],
     ["Errors", s ? (s.error_count ? `<span class="down">${s.error_count} error line${s.error_count > 1 ? "s" : ""}</span><ul class="errs">${s.errors.map((e) => `<li>${esc(e)}</li>`).join("")}</ul>` : '<span class="up">none</span>') : null],
     ["Log", s ? `<a href="#" class="loglink" id="lr-log">View log ›</a> <span class="neutral">· <span class="mono">${esc(s.file)}</span> · ${fmtBytes(s.size)}</span>` : null],
   ]);
@@ -797,8 +801,35 @@ $("dlg-close").onclick = () => $("logdlg").close();
 $("logdlg").addEventListener("click", (e) => { if (e.target === $("logdlg")) $("logdlg").close(); });
 
 const kv = (rows) => rows.filter((r) => r[1] != null && r[1] !== "").map(([k, v]) => `<tr><td>${esc(k)}</td><td>${v}</td></tr>`).join("");
+// Chart titles and series names come from the database collector's LABELS
+// (dashboard_collector.py), where a database names a metric differently or
+// shows its closest equivalent; the defaults below are MySQL's.
+const LABEL_KEYS = {
+  qps: { db_tps: "qps_tps", db_qps: "qps_qps" },
+  rows: { db_rows_read: "rows_read", db_rows_inserted: "rows_inserted", db_rows_updated: "rows_updated", db_rows_deleted: "rows_deleted" },
+  thr: { db_threads_running: "thr_running", db_threads_connected: "thr_connected" },
+  bp: { db_bp_hit_pct: "bp_hit", db_bp_dirty_pct: "bp_dirty", "Free pages": "bp_free" },
+  redo: { db_redo_written_bytes: "redo_written", db_checkpoint_age_bytes: "redo_age" },
+  hll: { db_history_list_length: "hll_history", db_row_lock_waits: "hll_locks" },
+};
+const LABEL_DEFAULTS = {};
+for (const [id, keys] of Object.entries(LABEL_KEYS)) {
+  LABEL_DEFAULTS[id] = $("h-" + id).innerHTML;
+  for (const s of charts[id].series) { const k = keys[s.key || s.name]; if (k) { s.labelKey = k; LABEL_DEFAULTS[k] = s.name; } }
+}
+LABEL_DEFAULTS.pmem_note = $("pmem-note").textContent;
+function dbLabel(key, dflt) { const L = (info && info.db_labels) || {}; return L[key] || dflt; }
+function applyLabels() {
+  const L = info.db_labels || {};
+  for (const id of Object.keys(LABEL_KEYS)) {
+    $("h-" + id).innerHTML = L[id] ? esc(L[id]) : LABEL_DEFAULTS[id];
+    for (const s of charts[id].series) if (s.labelKey) s.name = L[s.labelKey] || LABEL_DEFAULTS[s.labelKey];
+  }
+  $("pmem-note").textContent = L.pmem_note || LABEL_DEFAULTS.pmem_note;
+}
 function renderInfo() {
   const n = info.node, db = info.db || {}, fs = info.filesystem;
+  applyLabels();
   if (info.db_process) { $("proc-name").textContent = info.db_process; charts.pcpu.series[0].name = info.db_process; }
   $("host").innerHTML = `<b>${esc(n.hostname)}</b>${n.ip && n.ip !== n.hostname ? ` (${esc(n.ip)})` : ""} · ${esc(n.os)}`;
   const topo = [n.sockets && `${n.sockets} socket${n.sockets > 1 ? "s" : ""}`, n.cores_per_socket && `${n.cores_per_socket} cores/socket`, n.threads_per_core && `${n.threads_per_core} threads/core`].filter(Boolean).join(" · ");
@@ -814,10 +845,8 @@ function renderInfo() {
   ]);
   $("i-db").innerHTML = db.error && !db.version ? kv([["Status", `<span class="down">${esc(db.error)}</span>`]]) : kv([
     ["Server", esc(db.engine)], ["Version", esc(db.version) + (db.version_comment ? `<br><span class="neutral">${esc(db.version_comment)}</span>` : "")],
-    ["Buffer pool", fmtBytes(+db.innodb_buffer_pool_size)], ["Redo log capacity", fmtBytes(+db.innodb_redo_log_capacity)],
-    ["Flush log at commit", esc(db.innodb_flush_log_at_trx_commit)], ["Flush method", esc(db.innodb_flush_method)],
-    ["IO capacity", `${esc(db.innodb_io_capacity)} / max ${esc(db.innodb_io_capacity_max)}`],
-    ["Binary log", esc(db.log_bin)], ["Isolation", esc(db.transaction_isolation)], ["Max connections", esc(db.max_connections)],
+    // database settings chosen by the collector: [label, value, "bytes" | null]
+    ...(db.settings || []).map(([k, v, f]) => [k, f === "bytes" ? fmtBytes(+v) : esc(v)]),
     ["Data directory", esc(db.datadir) + (fs ? `<br><span class="neutral">${esc(fs.device)} · ${esc(fs.fstype)} · ${fmtBytes(fs.free)} free of ${fmtBytes(fs.size)}</span>` : "")],
     ["Benchmark schema", db.bench_db ? `${esc(db.bench_db)} · ${fmtBytes(db.bench_db_size_bytes)}${db.warehouses ? " · " + fmtInt(db.warehouses) + " warehouses" : ""}` : null],
   ]);

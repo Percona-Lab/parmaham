@@ -1,9 +1,28 @@
-"""MySQL / Percona Server metrics for the Parma Ham dashboard.
+"""MySQL (Percona Server, Oracle MySQL) metrics for the Parma Ham dashboard.
+mariadb/dashboard_collector.py builds on this module.
 
-Interface used by dashboard/parmaham_dashboard.py:
-    Collector(cnf_path).info()    -> dict, static-ish facts (refreshed rarely)
+Interface used by dashboard/parmaham_dashboard.py, the same for every database:
+    Collector(cnf_path).info()    -> dict, static-ish facts (refreshed rarely):
+                                     engine, version, version_comment, datadir,
+                                     settings ([label, value, format] rows for the
+                                     Environment table; format "bytes" or None),
+                                     bench_db, bench_db_size_bytes, warehouses,
+                                     last_purge
     Collector(cnf_path).sample()  -> dict of counters/gauges for one sample
-    RATES / GAUGES                -> which sample keys are per-second rates
+    RATES / GAUGES                -> which sample keys are per-second rates and
+                                     which are gauges
+    PROCESS                       -> label of the server processes in procmem.py
+    LABELS                        -> chart titles and series names, overriding
+                                     the dashboard defaults (which are MySQL's)
+
+Sample keys every database provides (the dashboard derives NOPM, TPM, hit
+ratio and dirty share from them); a database without an exact equivalent
+maps the closest metric and names it in LABELS:
+    db_uptime, db_qps, db_tps, db_rows_read/inserted/updated/deleted,
+    db_data_read_bytes, db_data_written_bytes, db_redo_written_bytes,
+    db_checkpoint_age_bytes, db_bp_read_requests, db_bp_disk_reads,
+    db_bp_pages_total/dirty/free, db_threads_running, db_threads_connected,
+    db_history_list_length, db_row_lock_waits, db_new_orders
 """
 
 import subprocess
@@ -11,6 +30,7 @@ import subprocess
 BENCH_DB = "tpcc"
 # Server process name; its memory is reported by procmem.py
 PROCESS = "mysqld"
+CLIENT = "mysql"
 
 # Counters converted to per-second rates by the dashboard: key -> status vars summed
 RATES = {
@@ -38,6 +58,9 @@ GAUGES = {
     "db_bp_pages_free": "Innodb_buffer_pool_pages_free",
 }
 
+# the dashboard's defaults are MySQL's names
+LABELS = {}
+
 SAMPLE_SQL = f"""
 SHOW GLOBAL STATUS;
 SELECT 'pmh_new_orders', COALESCE(SUM(d_next_o_id), 0) FROM `{BENCH_DB}`.district;
@@ -47,21 +70,26 @@ SELECT 'pmh_history_list_length', `count` FROM information_schema.innodb_metrics
 
 INFO_VARS = [
     "version", "version_comment", "datadir", "innodb_buffer_pool_size",
-    "innodb_redo_log_capacity", "innodb_flush_log_at_trx_commit",
+    "innodb_redo_log_capacity", "innodb_log_file_size", "innodb_flush_log_at_trx_commit",
     "innodb_flush_method", "innodb_io_capacity", "innodb_io_capacity_max",
     "max_connections", "log_bin", "transaction_isolation",
 ]
 
 
 class Collector:
-    name = "Percona Server for MySQL"
+    name = "MySQL"
+    client = CLIENT
+    sample_sql = SAMPLE_SQL
+    info_vars = INFO_VARS
+    rates = RATES
+    gauges = GAUGES
 
     def __init__(self, cnf_path):
         self.cnf_path = cnf_path
 
     def _query(self, sql, timeout=20):
         out = subprocess.run(
-            ["mysql", f"--defaults-extra-file={self.cnf_path}", "-NB", "-e", sql],
+            [self.client, f"--defaults-extra-file={self.cnf_path}", "-NB", "-e", sql],
             capture_output=True, text=True, timeout=timeout, check=True,
         ).stdout
         rows = []
@@ -69,11 +97,15 @@ class Collector:
             rows.append(line.split("\t"))
         return rows
 
-    def sample(self):
+    def status(self):
         status = {}
-        for row in self._query(SAMPLE_SQL):
+        for row in self._query(self.sample_sql):
             if len(row) == 2:
                 status[row[0]] = row[1]
+        return status
+
+    def sample(self):
+        status = self.status()
 
         def num(name):
             try:
@@ -82,21 +114,40 @@ class Collector:
                 return 0.0
 
         s = {"db_up": 1, "db_uptime": num("Uptime")}
-        for key, names in RATES.items():
+        for key, names in self.rates.items():
             s[key] = sum(num(n) for n in names)
-        for key, name in GAUGES.items():
+        for key, name in self.gauges.items():
             s[key] = num(name)
-        cur, ckpt = num("Innodb_redo_log_current_lsn"), num("Innodb_redo_log_checkpoint_lsn")
-        s["db_checkpoint_age_bytes"] = max(0.0, cur - ckpt) if cur else 0.0
+        s["db_checkpoint_age_bytes"] = self.checkpoint_age(num)
         return s
 
+    def checkpoint_age(self, num):
+        cur, ckpt = num("Innodb_redo_log_current_lsn"), num("Innodb_redo_log_checkpoint_lsn")
+        return max(0.0, cur - ckpt) if cur else 0.0
+
+    def variables(self):
+        names = ",".join(f"'{v}'" for v in self.info_vars)
+        return {name.lower(): value for name, value in self._query(
+            f"SHOW GLOBAL VARIABLES WHERE Variable_name IN ({names})")}
+
+    def settings(self, v):
+        """[label, value, format] rows for the dashboard's Environment table."""
+        return [
+            ["Buffer pool", v.get("innodb_buffer_pool_size"), "bytes"],
+            ["Redo log capacity", v.get("innodb_redo_log_capacity"), "bytes"],
+            ["Flush log at commit", v.get("innodb_flush_log_at_trx_commit"), None],
+            ["Flush method", v.get("innodb_flush_method"), None],
+            ["IO capacity", f"{v.get('innodb_io_capacity')} / max {v.get('innodb_io_capacity_max')}", None],
+            ["Binary log", v.get("log_bin"), None],
+            ["Isolation", v.get("transaction_isolation"), None],
+            ["Max connections", v.get("max_connections"), None],
+        ]
+
     def info(self):
-        info = {"engine": self.name}
-        names = ",".join(f"'{v}'" for v in INFO_VARS)
-        for name, value in self._query(
-                f"SELECT variable_name, variable_value FROM performance_schema.global_variables "
-                f"WHERE variable_name IN ({names})"):
-            info[name] = value
+        v = self.variables()
+        info = {"engine": self.engine_name(v), "version": v.get("version"),
+                "version_comment": v.get("version_comment"), "datadir": v.get("datadir")}
+        info["settings"] = [r for r in self.settings(v) if r[1] not in (None, "")]
         rows = self._query(
             "SELECT COALESCE(ROUND(SUM(data_length + index_length)), 0), COUNT(*) "
             f"FROM information_schema.tables WHERE table_schema = '{BENCH_DB}'", timeout=120)
@@ -131,3 +182,9 @@ class Collector:
             "history_deleted": int(r[5]),
             "note": r[6],
         }
+
+    def engine_name(self, v):
+        comment = (v.get("version_comment") or "").lower()
+        if "percona" in comment:
+            return "Percona Server for MySQL"
+        return "MySQL Community Server" if "community" in comment else self.name

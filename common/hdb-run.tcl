@@ -12,24 +12,25 @@ set rampup   [pmh_env PMH_RAMPUP 1]
 set duration [pmh_env PMH_DURATION 60]
 set pace_ms  [pmh_env PMH_PACE_MS 0]
 
-diset tpcc mysql_driver       timed
-diset tpcc mysql_rampup       $rampup
-diset tpcc mysql_duration     $duration
-diset tpcc mysql_allwarehouse [pmh_env PMH_ALLWAREHOUSE false]
+diset tpcc ${P}_driver       timed
+diset tpcc ${P}_rampup       $rampup
+diset tpcc ${P}_duration     $duration
+diset tpcc ${P}_allwarehouse [pmh_env PMH_ALLWAREHOUSE false]
 # Response-time profiling of every transaction type (HAMMERDB_TIMEPROFILE).
 # The percentiles are printed into the log below and shown on the dashboard.
 # Off by default: HammerDB 6.0 keeps every sample in memory (about 300 bytes
 # per transaction, measured), so a 60-minute run at 10k NOPM costs ~450 MB.
-diset tpcc mysql_timeprofile  [pmh_env PMH_TIMEPROFILE false]
-diset tpcc mysql_keyandthink  false
-diset tpcc mysql_total_iterations 10000000000
+diset tpcc ${P}_timeprofile  [pmh_env PMH_TIMEPROFILE false]
+diset tpcc ${P}_keyandthink  false
+diset tpcc ${P}_total_iterations 10000000000
 
 loadscript
 
 if { $pace_ms > 0 } {
     set script $_ED(package)
-    # 1. pacing interval option
-    set n [regsub {(set prepare "[a-z]+"[^\n]*\n)} $script "\\1set PACE_MS $pace_ms ;# Parma Ham pacing interval per virtual user\n" script]
+    # The driver scripts of MySQL, MariaDB and PostgreSQL share the loop below.
+    # 1. pacing interval (before the first line that is not a comment)
+    set n [regsub {\n([^#])} $script "\nset PACE_MS $pace_ms ;# Parma Ham pacing interval per virtual user\n\\1" script]
     # 2. check for abort on every iteration so paced VUs stop promptly
     incr n [regsub {set abchk_mx 1024;} $script {set abchk_mx 1;} script]
     # 3. sleep until this VU's next scheduled transaction start. The schedule
@@ -64,7 +65,7 @@ vudestroy
 # vurun returns "Benchmark Run jobid=<id>"
 regexp {jobid=([0-9A-F]+)} $runout -> jobid
 
-# The caller parses the "TEST RESULT : System achieved N NOPM from M MySQL TPM"
+# The caller parses the "TEST RESULT : System achieved N NOPM from M <db> TPM"
 # line that the monitor virtual user prints.
 #
 # HammerDB's standard job report is copied into the log as JSON between

@@ -10,6 +10,9 @@ PMH_STATE=${PMH_STATE:-/var/lib/parmaham}
 PMH_LOG=${PMH_LOG:-/var/log/parmaham}
 PMH_USER=${PMH_USER:-parmaham}
 PMH_SRC=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+# Supported databases: one directory each, with lib/db.sh (shell plug-in),
+# lib/hdb-db.tcl (HammerDB settings) and dashboard_collector.py
+PMH_DATABASES="mysql mariadb postgresql"
 
 log()  { printf '%s [parmaham] %s\n' "$(date '+%F %T')" "$*" >&2; }
 warn() { log "WARNING: $*"; }
@@ -33,6 +36,28 @@ load_config() {
     fi
 }
 
+# Load the database plug-in. The scripts that work the same for every database
+# live in common/ and are linked from each database directory: when started
+# as postgresql/compute-capacity.sh the database is the directory's, otherwise
+# (systemd units, common/...) it is PMH_DB from the configuration.
+load_db() {
+    local dir
+    dir=$(basename "$(cd "$(dirname "$0")" && pwd)")
+    if [[ " $PMH_DATABASES " == *" $dir "* ]]; then
+        if [[ $dir != "$PMH_DB" ]] && grep -qs '^PMH_DB=' "$PMH_CONF"; then
+            die "this node is set up for $PMH_DB (PMH_DB in $PMH_CONF); use $PMH_DB/$(basename "$0")"
+        fi
+        PMH_DB=$dir
+    fi
+    [[ " $PMH_DATABASES " == *" $PMH_DB "* ]] || die "unknown database type PMH_DB=$PMH_DB"
+    # shellcheck disable=SC1090
+    source "$PMH_SRC/$PMH_DB/lib/db.sh"
+}
+
+# Path of the running script that keeps the database directory it was
+# started from (realpath would resolve the link into common/)
+script_path() { echo "$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"; }
+
 conf_set() {
     local key=$1 value=$2
     install -d -m 0755 "$PMH_ETC"
@@ -55,10 +80,12 @@ install_payload() {
     install -d -m 0755 -o "$PMH_USER" -g "$PMH_USER" "$PMH_STATE" "$PMH_STATE/runs" "$PMH_LOG"
     if [[ $PMH_SRC != "$PMH_HOME" ]]; then
         local d
-        for d in common config dashboard "$PMH_DB"; do
+        # every database directory: plug-ins may share code (mariadb uses mysql/lib)
+        for d in common config dashboard $PMH_DATABASES; do
             rm -rf "${PMH_HOME:?}/$d"
             # no -a: do not carry over the clone's owner or SELinux label
             # (files under /root are admin_home_t, which systemd may not execute)
+            # -r keeps the links to common/ as links
             cp -r --preserve=mode,timestamps "$PMH_SRC/$d" "$PMH_HOME/$d"
             chown -R root:root "$PMH_HOME/$d"
             chmod -R go-w "$PMH_HOME/$d"
@@ -75,6 +102,102 @@ install_payload() {
 # ---------------------------------------------------------------------------
 mem_total_mb() { awk '/^MemTotal:/ {print int($2/1024)}' /proc/meminfo; }
 cpu_count()    { nproc; }
+numa_nodes()   { ls -d /sys/devices/system/node/node* 2>/dev/null | wc -l; }
+
+# Storage class of the device holding a directory: sets DISK_NAME and
+# DISK_CLASS (nvme, ssd or hdd)
+disk_class() {
+    local dev
+    dev=$(df --output=source "$1" | tail -1)
+    DISK_NAME=$(lsblk -no PKNAME "$dev" 2>/dev/null | tail -1)
+    [[ -n $DISK_NAME ]] || DISK_NAME=$(basename "$dev")
+    if [[ $(cat "/sys/block/$DISK_NAME/queue/rotational" 2>/dev/null || echo 0) == 1 ]]; then
+        DISK_CLASS=hdd
+    elif [[ $DISK_NAME == nvme* ]]; then
+        DISK_CLASS=nvme
+    else
+        DISK_CLASS=ssd
+    fi
+}
+
+# OS settings recommended for database servers, shared by every
+# database-install.sh: low swappiness, transparent huge pages off, pressure
+# stall information on, and a drop-in for the database service unit.
+install_os_tuning() {
+    local service=$1
+    echo "vm.swappiness = 1" > /etc/sysctl.d/90-parmaham.conf
+    sysctl -q -p /etc/sysctl.d/90-parmaham.conf || true
+
+    # Pressure stall information is shown on the dashboard; some kernels
+    # (RHEL 9 and derivatives) build it in but disable it unless booted with psi=1.
+    if [[ ! -e /proc/pressure/cpu ]]; then
+        if command -v grubby &>/dev/null; then
+            grubby --update-kernel=ALL --args=psi=1
+            warn "pressure stall information enabled with the psi=1 kernel argument; reboot for it to take effect"
+        else
+            warn "this kernel does not provide pressure stall information (/proc/pressure); add psi=1 to the kernel command line"
+        fi
+    fi
+
+    cat > /etc/systemd/system/parmaham-thp.service <<EOF
+[Unit]
+Description=Parma Ham: disable transparent huge pages (recommended for databases)
+Before=$service.service
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh -c 'echo never > /sys/kernel/mm/transparent_hugepage/enabled; echo never > /sys/kernel/mm/transparent_hugepage/defrag'
+
+[Install]
+WantedBy=multi-user.target
+EOF
+    install -d "/etc/systemd/system/$service.service.d"
+    cat > "/etc/systemd/system/$service.service.d/parmaham.conf" <<EOF
+[Service]
+LimitNOFILE=1048576
+Restart=on-failure
+EOF
+    systemctl daemon-reload
+    systemctl enable --now parmaham-thp.service &>/dev/null || warn "could not disable transparent huge pages"
+}
+
+# Packages every database-install.sh needs (dashboard, HammerDB download)
+base_packages() {
+    case $(os_family) in
+        debian) apt-get update -q; pkg_install curl python3 xz-utils tar util-linux pciutils procps gnupg2 ca-certificates lsb-release ;;
+        rhel)   pkg_install curl python3 xz tar util-linux pciutils procps-ng ;;
+    esac
+}
+
+# Record which database this node runs. Parma Ham runs one database per
+# node, so refuse to switch a node that is already set up for another one.
+claim_database() {
+    if grep -qs '^PMH_DB=' "$PMH_CONF" && [[ $PMH_DB != "$1" ]]; then
+        die "this node is already set up for $PMH_DB (PMH_DB in $PMH_CONF); Parma Ham runs one database per node"
+    fi
+    conf_set PMH_DB "$1"
+}
+
+random_password() {
+    # satisfies MySQL's default password policy: mixed case + digits + symbol
+    printf '%s-Pm1' "$(head -c 24 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 20)"
+}
+
+# KEY=value credential files in /etc/parmaham: write_cnf file owner_group mode
+# then "key=value" lines on stdin. MySQL-family files carry a [client] header
+# so the client reads them with --defaults-extra-file.
+write_cnf() {
+    local file=$1 group=$2 mode=$3
+    install -d -m 0755 "$PMH_ETC"
+    ( umask 077; cat > "$file" )
+    chown "root:$group" "$file"
+    chmod "$mode" "$file"
+}
+
+cnf_value() {
+    # cnf_value file key
+    sed -n "s/^$2=//p" "$1" | head -1
+}
 
 # ---------------------------------------------------------------------------
 # OS / package helpers
@@ -121,40 +244,34 @@ install_hammerdb() {
         [[ -x $dir/hammerdbcli ]] || die "HammerDB was not found in $dir after extraction"
     fi
 
-    # HammerDB's MySQL interface (mysqltcl) links against Oracle's
-    # libmysqlclient.so.24 and requires its versioned symbols, so Percona's
-    # libperconaserverclient cannot be substituted. Take the library from the
-    # MySQL minimal tarball and keep it private to HammerDB.
-    if [[ ! -e $libdir/libmysqlclient.so.24 ]]; then
-        local v=$MYSQL_CLIENT_LIB_VERSION
-        case $arch in
-            x86_64)  tarball="mysql-$v-linux-glibc2.17-x86_64-minimal.tar.xz" ;;
-            aarch64) tarball="mysql-$v-linux-glibc2.28-aarch64.tar.xz" ;;  # no minimal build for ARM
-        esac
-        url="https://cdn.mysql.com/archives/mysql-${v%.*}/$tarball"
-        log "downloading libmysqlclient.so.24 from $url"
-        install -d "$libdir"
-        curl -fsSL "$url" | tar xJ -C "$libdir" --strip-components=2 --wildcards \
-            '*/lib/libmysqlclient.so*' '*/lib/private/*'
-        [[ -e $libdir/libmysqlclient.so.24 ]] || die "libmysqlclient.so.24 not found after extraction"
-    fi
+    # client library HammerDB's driver needs for this database (plug-in hook)
+    if declare -F db_hammerdb_libs >/dev/null; then db_hammerdb_libs "$libdir"; fi
     log "HammerDB $HAMMERDB_VERSION installed in $dir"
 }
 
-# Run a HammerDB CLI Tcl script. PMH_* variables must already be exported.
+# Fail early when the benchmark schema is missing
+require_schema() {
+    local n
+    n=$(db_bench "SELECT COUNT(*) FROM warehouse" 2>/dev/null) \
+        || die "TPROC-C schema not found - run database-generate.sh first"
+    [[ $n -gt 0 ]] || die "TPROC-C schema is empty - run database-generate.sh first"
+}
+
+# Run a HammerDB CLI Tcl script from common/. PMH_* variables must already be
+# exported (hdb_env).
 # Each invocation gets a clean TMP directory: HammerDB keeps its settings
 # and job history in SQLite files there and we want neither to carry over.
 # HammerDB echoes every setting it changes, including the database password
 # ("Changed tpcc:mysql_pass from x to y"), so its output is masked before it
 # reaches any log.
 hammerdb_cli() {
-    local script=$1 tmp rc=0
+    local script=$PMH_HOME/common/$1 tmp rc=0
     tmp="$PMH_STATE/hammerdb-tmp.$$"
     rm -rf "$tmp"
     install -d -m 0700 "$tmp"
     (
         cd "$(hammerdb_dir)"
-        export TMP="$tmp" LD_LIBRARY_PATH="$PMH_HOME/hammerdb/lib"
+        export TMP="$tmp" LD_LIBRARY_PATH="$PMH_HOME/hammerdb/lib" PMH_HOME PMH_DB
         ./hammerdbcli auto "$script" 2>&1 | mask_passwords
     ) || rc=$?
     rm -rf "$tmp"
@@ -162,9 +279,10 @@ hammerdb_cli() {
 }
 
 mask_passwords() {
-    sed -u -E -e 's/(_pass(word)? from ).* to .* for /\1*** to *** for /' \
-              -e 's/^Value .* for ([a-z_:]*_pass(word)?) is the same as existing value .*, no change/Value *** for \1 is the same as existing value ***, no change/' \
-              -e 's/("[a-z_]*_pass(word)?": *")[^"]*"/\1***"/'
+    # (pg_superuserpass has no "_" before "pass")
+    sed -u -E -e 's/(pass(word)? from ).* to .* for /\1*** to *** for /' \
+              -e 's/^Value .* for ([a-z_:]*pass(word)?) is the same as existing value .*, no change/Value *** for \1 is the same as existing value ***, no change/' \
+              -e 's/("[a-z_]*pass(word)?": *")[^"]*"/\1***"/g'
 }
 
 # Run a timed HammerDB test, logging to $2. Prints "NOPM TPM" on success.

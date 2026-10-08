@@ -1,20 +1,42 @@
 # Built-in defaults. Do not edit: override values in /etc/parmaham/parmaham.conf
 # (see config/parmaham.conf.example) or with command line flags.
 
-# Database type, matches a directory in the project (mysql, ...)
+# Database type, matches a directory in the project: mysql, mariadb or
+# postgresql. Set by <database>/database-install.sh.
 PMH_DB=mysql
 
-# --- Percona Server for MySQL ----------------------------------------------
+# --- MySQL (mysql/) ---------------------------------------------------------
+# percona = Percona Server for MySQL, community = Oracle MySQL Community Server
+MYSQL_FLAVOR=percona
 # percona-release repository to install from
 PS_REPO=ps-97-lts
+# repo.mysql.com series for the community flavor: mysql-9.7-lts, mysql-8.4-lts
+# or mysql-innovation (newest release)
+MYSQL_COMMUNITY_REPO=mysql-9.7-lts
 # Fraction of RAM for the InnoDB buffer pool (percent). HammerDB runs on the
 # same node, so leave headroom for its virtual users.
+# MariaDB uses the MYSQL_* tuning settings in this section too.
 MYSQL_BUFFER_POOL_PCT=60
 # 1 = full durability (realistic), 2 = flush redo once per second
 MYSQL_FLUSH_LOG_AT_TRX_COMMIT=1
 # Binary logging: off by default so a months-long run cannot fill the disk.
 MYSQL_BINLOG=0
 MYSQL_BINLOG_EXPIRE_SECONDS=21600
+
+# --- MariaDB (mariadb/) ----------------------------------------------------
+# MariaDB release series from the MariaDB Foundation repository
+# (dlm.mariadb.com): 13.0 = newest stable, 12.3 / 11.8 = long-term support
+MARIADB_VERSION=13.0
+
+# --- PostgreSQL (postgresql/) ------------------------------------------------
+# Major version from the PostgreSQL community repository (PGDG)
+PG_VERSION=18
+# shared_buffers as a fraction of RAM (percent); the rest is page cache,
+# which PostgreSQL relies on, and HammerDB
+PG_SHARED_BUFFERS_PCT=25
+# synchronous_commit: on = full durability (realistic), off = no wait for
+# the WAL flush at commit
+PG_SYNCHRONOUS_COMMIT=on
 
 # --- Data generation --------------------------------------------------------
 WAREHOUSES=200

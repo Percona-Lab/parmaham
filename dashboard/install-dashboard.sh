@@ -16,6 +16,7 @@ UNIT=parmaham-dashboard.service
 MEM_UNIT=parmaham-procmem.service
 require_root
 load_config
+load_db
 while (($#)); do
     case $1 in
         --port)      conf_set DASHBOARD_PORT "$2"; shift 2 ;;
@@ -41,9 +42,7 @@ id "$WEB_USER" &>/dev/null || useradd --system --no-create-home --home-dir / --s
 
 # Database server memory (PSS needs ptrace access, so it is read by a small
 # separate service without network access instead of the public dashboard)
-DB_PROCESS=$(python3 -c "import importlib.util as u, sys
-s = u.spec_from_file_location('c', sys.argv[1]); m = u.module_from_spec(s); s.loader.exec_module(m)
-print(getattr(m, 'PROCESS', ''))" "$PMH_HOME/$PMH_DB/dashboard_collector.py")
+DB_PROCESS=$(db_procmem_spec)
 cat > "/etc/systemd/system/$MEM_UNIT" <<EOF
 [Unit]
 Description=Parma Ham: database server and HammerDB memory/CPU usage for the dashboard

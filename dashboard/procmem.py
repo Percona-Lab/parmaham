@@ -69,9 +69,18 @@ def parse_specs(args):
     return specs
 
 
+def unit_cgroup(unit):
+    """cgroup directory of a system service; instances of a template unit
+    (postgresql@18-main.service) live in their own slice"""
+    if "@" in unit:
+        prefix = unit.split("@", 1)[0].replace("-", "\\x2d")
+        return f"{CGROUP_ROOT}/system-{prefix}.slice/{unit}"
+    return f"{CGROUP_ROOT}/{unit}"
+
+
 def unit_pids(unit):
     try:
-        with open(f"{CGROUP_ROOT}/{unit}/cgroup.procs") as f:
+        with open(f"{unit_cgroup(unit)}/cgroup.procs") as f:
             return {int(x) for x in f.read().split()}
     except (OSError, ValueError):
         return set()
@@ -79,7 +88,7 @@ def unit_pids(unit):
 
 def unit_cpu_seconds(unit):
     try:
-        with open(f"{CGROUP_ROOT}/{unit}/cpu.stat") as f:
+        with open(f"{unit_cgroup(unit)}/cpu.stat") as f:
             for line in f:
                 k, v = line.split()
                 if k == "usage_usec":

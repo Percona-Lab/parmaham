@@ -593,10 +593,10 @@ LOG_NAME = re.compile(r"^(runs/run-\d{8}-\d{6}\.log|capacity\.log)$")
 # HammerDB echoes settings it changes; never show a password even if a log
 # written by an older version still contains one
 SECRET = [
-    (re.compile(r"(_pass(?:word)? from ).* to .* for "), r"\1*** to *** for "),
-    (re.compile(r"^Value .* for ([a-z_:]*_pass(?:word)?) is the same as existing value .*, no change"),
+    (re.compile(r"(pass(?:word)? from ).* to .* for "), r"\1*** to *** for "),
+    (re.compile(r"^Value .* for ([a-z_:]*pass(?:word)?) is the same as existing value .*, no change"),
      r"Value *** for \1 is the same as existing value ***, no change"),
-    (re.compile(r'("[a-z_]*_pass(?:word)?": *")[^"]*"'), r'\1***"'),
+    (re.compile(r'("[a-z_]*pass(?:word)?": *")[^"]*"'), r'\1***"'),
 ]
 REPORT_BEGIN = re.compile(r"^PARMAHAM_BEGIN (\w+)$")
 REPORT_END = re.compile(r"^PARMAHAM_END (\w+)$")
@@ -948,6 +948,9 @@ def api_info():
         "capacity": read_json(os.path.join(PMH_STATE, "capacity.json")),
         "interval": SAMPLER.interval,
         "db_process": getattr(SAMPLER.db_module, "PROCESS", None),
+        "db_type": CONF.get("PMH_DB", "mysql"),
+        # chart titles and series names for this database (see index.html LABEL_KEYS)
+        "db_labels": getattr(SAMPLER.db_module, "LABELS", {}),
     }
 
 
@@ -987,10 +990,11 @@ def main():
     history = float(CONF.get("DASHBOARD_HISTORY_MIN", 60))
     bind = CONF.get("DASHBOARD_BIND", "0.0.0.0")
     port = int(os.environ.get("DASHBOARD_PORT", CONF.get("DASHBOARD_PORT", 80)))
-    if not shutil.which("mysql") and CONF.get("PMH_DB", "mysql") == "mysql":
-        print("warning: mysql client not found, database metrics unavailable", file=sys.stderr)
     rollup_hours = float(CONF.get("DASHBOARD_ROLLUP_HOURS", 24))
     SAMPLER = Sampler(interval, history, rollup_hours)
+    client = getattr(SAMPLER.db, "client", None)
+    if client and not shutil.which(client):
+        print(f"warning: {client} client not found, database metrics unavailable", file=sys.stderr)
     SAMPLER.refresh_db_info()
     SAMPLER.start()
     httpd = ThreadingHTTPServer((bind, port), Handler)

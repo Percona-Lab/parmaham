@@ -5,52 +5,73 @@ days, weeks or months, at a controlled share of what the machine can do. Use it
 for demos, and to see how an environment behaves over a long period: whether
 performance drifts, stalls or degrades over time.
 
-Each supported database lives in its own directory. The first one is
-**Percona Server for MySQL 9.7** (`mysql/`).
+Supported databases, one per node, each in its own directory:
+
+| Directory | Database | Default version |
+|-----------|----------|-----------------|
+| `mysql/` | **Percona Server for MySQL** (default) or **Oracle MySQL Community Server** (`--flavor community`) | Percona Server 9.7 LTS; MySQL 9.7 LTS or the newest Innovation release (`--repo mysql-innovation`, 26.7) |
+| `mariadb/` | **MariaDB Server** (MariaDB Foundation repository) | 13.0 (`--version 12.3` or `11.8` for an LTS release) |
+| `postgresql/` | **PostgreSQL** (PostgreSQL community repository, PGDG) | 18 |
 
 ```
 parmaham/
-├── common/lib.sh                  shared shell helpers (config, HammerDB install/run, status)
+├── common/                        everything that works the same for every database
+│   ├── lib.sh                     shared shell helpers (config, HammerDB install/run, status)
+│   ├── database-generate.sh       build the TPROC-C schema (default 200 warehouses)
+│   ├── compute-capacity.sh        measure sustainable throughput (64 VU, 15 + 30 min)
+│   ├── install-workload.sh        permanent workload service at N% of capacity
+│   ├── install-hammerdb-purge.sh  timer that deletes benchmark data older than 24h
+│   ├── workload-loop.sh, purge.sh the workload and purge services
+│   └── hdb-*.tcl                  HammerDB build and run scripts
 ├── config/                        defaults + example /etc/parmaham/parmaham.conf
 ├── dashboard/                     public web dashboard (Python standard library only)
-└── mysql/                         Percona Server for MySQL
-    ├── database-install.sh        install + tune Percona Server for this node
-    ├── database-generate.sh       build the TPROC-C schema (default 200 warehouses)
-    ├── compute-capacity.sh        measure sustainable throughput (64 VU, 15 + 30 min)
-    ├── install-workload.sh        permanent workload service at N% of capacity
-    ├── install-hammerdb-purge.sh  timer that deletes benchmark data older than 24h
-    ├── dashboard_collector.py     database metrics for the dashboard
-    └── lib/                       HammerDB Tcl scripts, purge SQL, service loop
+├── mysql/  mariadb/  postgresql/  one directory per database:
+│   ├── database-install.sh        install + tune the database server for this node
+│   ├── database-generate.sh ...   links to the common scripts
+│   ├── dashboard_collector.py     database metrics for the dashboard
+│   └── lib/                       plug-in (db.sh), HammerDB settings (hdb-db.tcl), purge SQL
 ```
 
 ## Quick start
 
 On a fresh Ubuntu 22.04/24.04, Debian 12 or RHEL/Rocky/Alma 9 machine (x86_64),
-as root:
+as root. Pick the database directory, here `mysql/`:
 
 ```bash
 git clone https://github.com/Percona-Lab/parmaham.git
 cd parmaham
 
-mysql/database-install.sh                  # Percona Server 9.7 LTS, tuned to this node
-mysql/database-generate.sh                 # 200 warehouses
-mysql/compute-capacity.sh --background     # ~46 minutes: journalctl -fu parmaham-capacity
-mysql/install-workload.sh                  # run at 50% of capacity, forever
-mysql/install-hammerdb-purge.sh            # keep only the last 24h of new data
+DB=mysql                                   # or mariadb, postgresql
+$DB/database-install.sh                    # install the server, tuned to this node
+$DB/database-generate.sh                   # 200 warehouses
+$DB/compute-capacity.sh --background       # ~46 minutes: journalctl -fu parmaham-capacity
+$DB/install-workload.sh                    # run at 50% of capacity, forever
+$DB/install-hammerdb-purge.sh              # keep only the last 24h of new data
 dashboard/install-dashboard.sh             # http://<host>/
 ```
 
-Each step prints the next one. Every script supports `--help`.
+Each step prints the next one. Every script supports `--help`. Only the
+install script differs per database; the other four are the same scripts
+(`common/`) run for the database of the directory they are started from.
+`database-install.sh` records the database in `/etc/parmaham/parmaham.conf`
+(`PMH_DB`), and the scripts refuse to run for a different database on the
+same node.
 
 > Put the database on the storage you want to test *before* running
-> `database-install.sh`: mount it at `/var/lib/mysql`.
+> `database-install.sh`: mount it at the data directory (`/var/lib/mysql`,
+> or `/var/lib/postgresql` for PostgreSQL).
 
 ## What each step does
 
-### `database-install.sh`
+### `mysql/database-install.sh [--flavor percona|community] [--repo REPO]`
 
-* Adds the Percona repository with `percona-release enable-only ps-97-lts`
-  (configurable with `--repo`) and installs `percona-server-server`.
+* Percona Server (default): adds the Percona repository with
+  `percona-release enable-only ps-97-lts` (configurable with `--repo`) and
+  installs `percona-server-server`.
+* `--flavor community`: adds Oracle's repository from repo.mysql.com for one
+  release series, `mysql-9.7-lts` by default or `--repo mysql-innovation` for
+  the newest Innovation release (26.7 at the time of writing), and installs
+  `mysql-community-server`.
 * Generates a random root password and stores it in `/etc/parmaham/mysql-admin.cnf`,
   which is also linked from `/root/.my.cnf`.
 * Writes `zz-parmaham.cnf` with settings sized for the node:
@@ -69,15 +90,52 @@ Each step prints the next one. Every script supports `--help`.
 
 Re-running the script keeps the installation and only regenerates the tuning.
 
+### `mariadb/database-install.sh [--version 13.0]`
+
+* Adds the MariaDB Foundation repository for the release series
+  (`mariadb_repo_setup`) and installs `mariadb-server`.
+* `root@localhost` keeps unix socket authentication and also gets a random
+  password, stored in `/etc/parmaham/mariadb-admin.cnf` (linked from `/root/.my.cnf`).
+* The same sizing and options as MySQL (`--buffer-pool-pct`, `--binlog`,
+  `--flush-log-at-trx-commit`), with MariaDB's names: the redo log is sized
+  with `innodb_log_file_size`, and `innodb_flush_method` (deprecated, data
+  files use O_DIRECT already) and `innodb_numa_interleave` are not set.
+* The same `hammerdb` and `parmaham_mon` accounts.
+
+### `postgresql/database-install.sh [--version 18] [--shared-buffers-pct 25] [--synchronous-commit on|off]`
+
+* Adds the PostgreSQL community repository (PGDG) and installs
+  `postgresql-18` (RHEL: `postgresql18-server` and `-contrib`, plus `initdb`).
+* Sets a random password for the `postgres` superuser, stored in
+  `/etc/parmaham/postgresql-admin.cnf`: HammerDB uses it to create the
+  benchmark user and database.
+* Writes `conf.d/zz-parmaham.conf` (RHEL: included from `postgresql.conf`):
+  * `shared_buffers`: 25% of RAM (`--shared-buffers-pct`); PostgreSQL also
+    relies on the page cache, and HammerDB runs on the same node
+  * `max_wal_size`: twice `shared_buffers`, between 2 and 64 GB, with 15-minute
+    checkpoints spread over 90% of the interval (the counterpart of the redo log capacity)
+  * `random_page_cost` and `effective_io_concurrency` chosen from the disk type
+  * `max_connections = 300`, `autovacuum_vacuum_cost_limit = 2000` so
+    autovacuum keeps up for months, `track_io_timing`, and `pg_stat_statements`
+    (statement counts for the dashboard)
+* Durable by default (`synchronous_commit = on`); WAL archiving stays off.
+* The same OS settings as MySQL, and two roles: `hammerdb` (owns the `tpcc`
+  database) and `parmaham_mon` (member of `pg_monitor`, read-only).
+
 ### `database-generate.sh [--warehouses 200] [--vu N] [--partition true] [--force]`
 
-* Downloads HammerDB 6.0 into `/opt/parmaham/hammerdb` and builds the schema.
-* HammerDB's MySQL driver needs Oracle's `libmysqlclient.so.24`; Percona's client
-  library is not symbol-compatible. The script therefore takes that one library
-  from the MySQL 8.4 minimal tarball and keeps it private to HammerDB.
-* Builds `history` with HammerDB's invisible primary key option and widens it to
-  `BIGINT`. A permanent run would otherwise exhaust `INT`, and the purge job needs
-  the key.
+* Downloads HammerDB 6.0 into `/opt/parmaham/hammerdb` and builds the schema
+  with HammerDB's driver for the database (`mysql`, `maria` or `pg`).
+* MySQL: HammerDB's MySQL driver needs Oracle's `libmysqlclient.so.24`;
+  Percona's client library is not symbol-compatible. The script therefore takes
+  that one library from the MySQL 8.4 minimal tarball and keeps it private to
+  HammerDB. MariaDB and PostgreSQL use the client libraries installed with the server.
+* MySQL and MariaDB: builds `history` with HammerDB's invisible primary key
+  option and widens it to `BIGINT`. A permanent run would otherwise exhaust
+  `INT`, and the purge job needs the key.
+* PostgreSQL: builds with stored procedures (`pg_storedprocs`, HammerDB's
+  recommendation for PostgreSQL 11 and later) and adds a `BIGINT` identity
+  primary key to `history`, which HammerDB creates without a key.
 
 ### `compute-capacity.sh [--vu 64] [--rampup 15] [--duration 30] [--background]`
 
@@ -130,6 +188,9 @@ older than the retention period. It avoids table scans:
   data stays consistent with a fresh load.
 * Orders that have not been delivered yet are never deleted.
 * Purge history is stored in `tpcc.parmaham_purge_log` and shown on the dashboard.
+* MySQL and MariaDB use the same stored procedures (`mysql/lib/purge.sql`);
+  PostgreSQL uses a PL/pgSQL port (`postgresql/lib/purge.sql`) whose
+  procedures commit after every batch. Autovacuum reclaims the deleted rows.
 
 Because watermarks start at installation, the first rows are deleted one
 retention period after the purge is installed.
@@ -140,10 +201,11 @@ Runs a public dashboard with no login, by design. It shows:
 
 * **Benchmark:** state, progress of the current iteration, target and capacity,
   live NOPM/TPM against the target, the result of every run, and recent runs.
-* **Database:** transactions and queries, InnoDB row operations, threads, buffer
-  pool, redo log and checkpoint age, undo history length, row lock waits, and
-  `mysqld` memory (VSZ, RSS, and PSS + SwapPSS on one chart), and space on
-  the volume that holds the data directory.
+* **Database:** transactions and queries, row operations, threads, buffer
+  pool, redo log and checkpoint age, undo history length, lock waits, and
+  space on the volume that holds the data directory. The charts are the same
+  for every database; where a database has no exact equivalent the closest
+  metric is shown under the database's own name (see below).
 * **Last HammerDB execution:** a summary of the last completed run, with a
   **View log** link to its HammerDB log. The run-progress bar at the top has a
   **Live log** link that follows the log of the run in progress.
@@ -161,7 +223,8 @@ Runs a public dashboard with no login, by design. It shows:
     also includes the profiler's own text summary from `hdbxtprofile.log`.
   * Clicking any run in **Recent runs** shows the same summary and the tail of
     that run's log.
-* **Processes:** CPU in use (cores) for `mysqld` and HammerDB, plus memory
+* **Processes:** CPU in use (cores) for the database server (`mysqld`,
+  `mariadbd`, or every `postgres` process of the service) and HammerDB, plus memory
   (VSZ, RSS, PSS + SwapPSS) for each. HammerDB covers every process in the
   workload and capacity services (`hammerdbcli` with one thread per virtual
   user, plus the loop script and log filter) and any `hammerdbcli` started by
@@ -174,6 +237,19 @@ Runs a public dashboard with no login, by design. It shows:
   virtualization and system vendor), OS and kernel, and the database
   configuration and data directory filesystem.
 
+Database metrics per database:
+
+| Chart | MySQL | MariaDB | PostgreSQL |
+|-------|-------|---------|------------|
+| Transactions & queries | `Com_commit` + `Com_rollback`, `Questions` | same | `xact_commit` + `xact_rollback`; statements from `pg_stat_statements` |
+| Row operations | `Innodb_rows_*` | `Handler_*` (MariaDB has no `Innodb_rows_*`): read requests, writes, updates, deletes | `tup_returned`, `tup_inserted`, `tup_updated`, `tup_deleted` |
+| Threads | `Threads_running`, `Threads_connected` | same | client backends active / connected |
+| Buffer pool | hit ratio, dirty and free pages | same | shared buffers: `blks_hit` vs `blks_read` hit ratio, dirty and unused buffers (`pg_buffercache_summary()`) |
+| Redo log | `Innodb_os_log_written`, LSN − checkpoint LSN | `Innodb_os_log_written`, `Innodb_checkpoint_age` | WAL written (LSN advance), WAL since the last checkpoint's redo point |
+| Undo history & lock waits | history list length, row lock waits/s | same | dead tuples not yet vacuumed (`n_dead_tup`), sessions waiting on a lock |
+
+Each `dashboard_collector.py` documents its mapping.
+
 Implementation notes:
 
 * Written in plain Python 3 with one static HTML page. It uses no third-party
@@ -182,7 +258,7 @@ Implementation notes:
   (kept in memory for 1 h).
 * The 3h and 24h views use 1-minute averages kept for 24 h. They are saved in
   `/var/lib/parmaham-dashboard`, so history survives restarts and reboots.
-* PSS and SwapPSS need ptrace access to `mysqld`. A separate helper,
+* PSS and SwapPSS need ptrace access to the database server. A separate helper,
   `parmaham-procmem.service`, reads them; it has `CAP_SYS_PTRACE` but no
   network access, so the public dashboard needs no privileges.
 * Runs as a systemd `DynamicUser` with a read-only filesystem view. The
@@ -195,7 +271,7 @@ Implementation notes:
 | Path | Contents |
 |------|----------|
 | `/etc/parmaham/parmaham.conf` | settings (all defaults: `config/parmaham.conf.defaults`); flags passed to scripts are saved here |
-| `/etc/parmaham/mysql-*.cnf` | MySQL credentials (admin 0600, bench 0640 root:parmaham, monitor 0600) |
+| `/etc/parmaham/<db>-*.cnf` | database credentials, e.g. `mysql-admin.cnf` (admin 0600, bench 0640 root:parmaham, monitor 0600) |
 | `/opt/parmaham` | installed copy of this repository plus HammerDB |
 | `/var/lib/parmaham` | `capacity.json`, `schema.json`, `status.json`, `results.jsonl` (one line per run), `pace-correction` |
 | `/var/log/parmaham` | `generate.log`, `capacity*.log`, `runs/run-*.log` (newest 200); HammerDB echoes the database password, which is masked before it is written |
@@ -205,7 +281,7 @@ Implementation notes:
 | `parmaham-workload.service` | the permanent HammerDB loop (user `parmaham`) |
 | `parmaham-purge.timer` / `.service` | periodic purge |
 | `parmaham-dashboard.service` | dashboard |
-| `parmaham-procmem.service` | reads `mysqld` and HammerDB CPU and memory (VSZ/RSS/PSS) for the dashboard |
+| `parmaham-procmem.service` | reads database server and HammerDB CPU and memory (VSZ/RSS/PSS) for the dashboard |
 | `parmaham-capacity.service` | transient, `compute-capacity.sh --background` |
 | `parmaham-thp.service` | disables transparent huge pages at boot |
 
@@ -215,16 +291,29 @@ Useful commands:
 journalctl -fu parmaham-workload          # follow the benchmark
 tail -n 5 /var/lib/parmaham/results.jsonl # latest results
 systemctl list-timers parmaham-purge.timer
-mysql/install-workload.sh --percent 70    # change the load level (restarts the loop)
+mysql/install-workload.sh --percent 70    # change the load level (restarts the loop; use your database's directory)
 ```
 
 ## Adding another database
 
-Create a directory named after the database, with the same five scripts and a
-`dashboard_collector.py` that provides a `Collector` class with `info()` and
-`sample()` plus the `RATES`/`GAUGES` maps (see `mysql/dashboard_collector.py`).
-Then set `PMH_DB=<dir>` in `/etc/parmaham/parmaham.conf`. The workload loop,
-status files and dashboard do not depend on the database.
+Create a directory named after the database and add it to `PMH_DATABASES` in
+`common/lib.sh`. The directory needs:
+
+* `database-install.sh`, which installs and tunes the server, creates the
+  benchmark and monitoring accounts, writes `/etc/parmaham/<db>-{admin,bench,monitor}.cnf`
+  and calls `claim_database <db>`;
+* `lib/db.sh`, the shell plug-in: the functions listed at the top of
+  `mysql/lib/db.sh` (service name, SQL as admin and as the benchmark user,
+  HammerDB environment, schema fix-ups, purge, process names);
+* `lib/hdb-db.tcl`, which selects the HammerDB database and sets the
+  connection, credentials and the prefix of HammerDB's settings;
+* `dashboard_collector.py` with a `Collector` class (`info()`, `sample()`), the
+  `RATES`/`GAUGES` maps, `PROCESS` and optional `LABELS` (see the top of
+  `mysql/dashboard_collector.py`);
+* links to the four common scripts (`ln -s ../common/compute-capacity.sh ...`).
+
+The workload loop, purge timer, status files and dashboard do not depend on
+the database.
 
 ## Status
 
