@@ -1,0 +1,418 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Parma Ham Compare</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23d9485f'/%3E%3Cpath d='M7 22 L13 14 L18 18 L25 9' stroke='white' stroke-width='3' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="style.css">
+<style>
+/* host A and host B: the dashboard's first two categorical hues, re-stepped for
+   the dark surface (validated with the dataviz palette checks) */
+:root { --ca: #2f6fde; --cb: #e8833a; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --ca: #5b8ef5; --cb: #d9732a; } }
+:root[data-theme="dark"] { --ca: #5b8ef5; --cb: #d9732a; }
+.pick { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.pick label { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); }
+.pick select { font: inherit; font-size: 13px; color: var(--text); background: var(--panel); border: 1px solid var(--border);
+  border-radius: 8px; padding: 5px 8px; max-width: 260px; }
+.sw { display: inline-block; width: 10px; height: 10px; border-radius: 3px; flex: none; }
+.sw.a { background: var(--ca); } .sw.b { background: var(--cb); }
+table.cmp { width: 100%; border-collapse: collapse; font-size: 13px; }
+table.cmp th, table.cmp td { padding: 6px 8px; border-top: 1px solid var(--grid); text-align: left; vertical-align: top; }
+table.cmp tr:first-child th { border-top: 0; }
+table.cmp th { font-weight: 600; white-space: nowrap; }
+table.cmp td:first-child { color: var(--muted); width: 20%; }
+table.cmp td.d { white-space: nowrap; color: var(--muted); }
+table.cmp td.d b { font-weight: 600; }
+.split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; }
+.split > div, .grid > .panel { min-width: 0; }
+.split .chart { height: 170px; }
+.split .sub { font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 6px; margin-bottom: 2px; }
+.note { font-size: 12px; color: var(--muted); margin: 4px 0 0; }
+.empty-hosts { padding: 24px; text-align: center; color: var(--muted); }
+@media (max-width: 700px) { .split { grid-template-columns: minmax(0, 1fr); } table.cmp td:first-child { width: auto; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="brand">
+      <div class="logo"><svg width="20" height="20" viewBox="0 0 32 32"><path d="M5 23 L12 14 L18 19 L27 8" stroke="white" stroke-width="3.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+      <div>
+        <h1>Parma Ham Compare</h1>
+        <div class="sub">Two HammerDB workloads side by side</div>
+      </div>
+    </div>
+    <div class="pick">
+      <label><span class="sw a"></span>A <select id="sel-a" aria-label="Host A"></select></label>
+      <button class="iconbtn" id="swap" title="Swap A and B" aria-label="Swap A and B">⇄</button>
+      <label><span class="sw b"></span>B <select id="sel-b" aria-label="Host B"></select></label>
+    </div>
+    <div class="tools">
+      <div class="seg" id="range">
+        <button data-min="5">5m</button><button data-min="15" class="on">15m</button><button data-min="60">1h</button><button data-min="180">3h</button><button data-min="1440">24h</button>
+      </div>
+      <button class="iconbtn" id="theme" title="Toggle light / dark">◐</button>
+    </div>
+  </header>
+
+  <div class="banner" id="banner"></div>
+
+  <h2>Overview <span class="aside" id="ov-aside"></span></h2>
+  <div class="panel"><div class="scroll"><table class="cmp" id="overview"></table></div></div>
+
+  <h2>Benchmark</h2>
+  <div class="grid two" id="g-bench"></div>
+  <h2>Efficiency <span class="aside">per unit of work, comparable across databases</span></h2>
+  <div class="grid" id="g-eff"></div>
+  <h2>Database <span class="aside">where the databases differ, each one's closest metric under its own name</span></h2>
+  <div class="grid" id="g-db"></div>
+  <h2>Processes</h2>
+  <div class="grid" id="g-proc"></div>
+  <h2>Operating system</h2>
+  <div class="grid" id="g-os"></div>
+  <h2>Configuration</h2>
+  <div class="panel"><div class="scroll"><table class="cmp" id="config"></table></div></div>
+
+  <footer>Parma Ham compare · data from each host's dashboard API · host clocks should be in sync (NTP) · this page refreshes automatically</footer>
+</div>
+
+<script src="chart.js"></script>
+<script>
+"use strict";
+// ---------------------------------------------------------------------------
+// hosts and their data
+// ---------------------------------------------------------------------------
+let hosts = [], rangeMin = 15, pick = { a: null, b: null };
+const SLOTS = ["a", "b"];
+
+// Everything the page knows about one selected host
+class Feed {
+  constructor(slot) { this.slot = slot; this.reset(null); }
+  reset(id) {
+    this.id = id; this.gen = (this.gen || 0) + 1;
+    this.info = null; this.status = null; this.results = []; this.error = null;
+    this.samples = []; this.lastT = 0; this.rollup = []; this.rollupT = 0;
+  }
+  get host() { return hosts.find((h) => h.id === this.id) || null; }
+  label(key, dflt) { const L = (this.info && this.info.db_labels) || {}; return L[key] || dflt; }
+  get short() { const h = this.host; return h ? h.name : this.slot.toUpperCase(); }
+  async get(path) {
+    const gen = this.gen;
+    const r = await fetch(`api/h/${this.id}/${path}`, { cache: "no-store" });
+    const d = await r.json();
+    if (gen !== this.gen) throw new Error("stale");
+    if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
+    return d;
+  }
+  async poll(what) {
+    if (this.id == null) return;
+    try {
+      if (what === "info") this.info = await this.get("info");
+      else if (what === "status") this.status = await this.get("status");
+      else if (what === "results") this.results = (await this.get("results?limit=500")).results || [];
+      else if (what === "metrics") {
+        const since = this.lastT || Date.now() / 1000 - 3700;
+        const d = await this.get(`metrics?since=${since.toFixed(1)}`);
+        if (d.samples.length) { this.samples.push(...d.samples); this.lastT = d.samples[d.samples.length - 1].t; }
+        const keep = d.now - 3700; while (this.samples.length && this.samples[0].t < keep) this.samples.shift();
+      } else if (what === "rollup") {
+        const since = this.rollupT || Date.now() / 1000 - 86400;
+        const d = await this.get(`metrics?res=60&since=${since.toFixed(1)}`);
+        if (d.samples.length) { this.rollup.push(...d.samples); this.rollupT = d.samples[d.samples.length - 1].t; }
+        const keep = d.now - 86400 - 300; while (this.rollup.length && this.rollup[0].t < keep) this.rollup.shift();
+      }
+      this.error = null;
+    } catch (e) { if (e.message !== "stale") this.error = e.message; }
+  }
+  // samples for the selected range: 5 s samples up to 1 h, then 1-minute
+  // averages plus the newer 5 s samples
+  view(x0) {
+    if (rangeMin <= 60) return this.samples.filter((p) => p.t >= x0);
+    const v = this.rollup.filter((p) => p.t >= x0), last = v.length ? v[v.length - 1].t : 0;
+    return v.concat(this.samples.filter((p) => p.t > last + 30));
+  }
+}
+const feeds = { a: new Feed("a"), b: new Feed("b") };
+
+// Put both hosts on one time grid: one point per bucket with p.a / p.b.
+// The hosts sample at different moments, so a bucket can miss one of them;
+// the charts draw across such holes (Chart opts.connect).
+function merge(x0) {
+  const res = rangeMin > 60 ? 60 : 5, map = new Map();
+  for (const s of SLOTS) for (const p of feeds[s].view(x0)) {
+    const t = Math.round(p.t / res) * res;
+    let m = map.get(t); if (!m) { m = { t }; map.set(t, m); }
+    m[s] = p;
+  }
+  return { data: [...map.values()].sort((x, y) => x.t - y.t), res };
+}
+
+// ---------------------------------------------------------------------------
+// chart catalog: one entry per comparison chart
+//   v(p, feed)   value of a host's sample (p is that host's own sample)
+//   lab          [db_labels key, default]: each database's own name for the
+//                metric, shown in the legend
+//   split        the databases measure different things under this name:
+//                when A and B name it differently, one chart (and axis) each
+// ---------------------------------------------------------------------------
+const sum = (...xs) => xs.some((x) => x == null) ? null : xs.reduce((a, b) => a + b, 0);
+const ratio = (a, b) => a == null || b == null || b <= 0 ? null : a / b;
+const mbps = (v) => fmtBytes(v, "/s");
+const perOrder = (bytes, p) => ratio(bytes, p.nopm / 60);
+const CHARTS = {
+  bench: [
+    { id: "nopm", title: "Live throughput (NOPM)", v: (p) => p.nopm, target: (f) => f.status && f.status.status && f.status.status.target_nopm, tall: true },
+    { id: "runs", title: "Result of every run", note: "% of each run's target (dashed: 100%)", runs: true, tall: true },
+  ],
+  eff: [
+    { id: "nopm-core", title: "NOPM per database CPU core", v: (p) => p.proc_cpu > 0.05 ? p.nopm / p.proc_cpu : null, note: "new orders per minute for each core the server uses: higher is better" },
+    { id: "redo-order", title: "Redo / WAL per new order", fmt: fmtBytes, v: (p) => perOrder(p.db_redo_written_bytes, p), note: "log bytes written per new-order transaction" },
+    { id: "disk-order", title: "Disk writes per new order", fmt: fmtBytes, v: (p) => perOrder(p.disk_write_bytes, p), note: "all device writes on the node per new order" },
+  ],
+  db: [
+    { id: "tps", title: "Transactions/s", v: (p) => p.db_tps, note: "commits + rollbacks" },
+    { id: "qps", title: "Queries/s", v: (p) => p.db_qps, lab: ["qps_qps", "Queries/s"] },
+    { id: "rread", title: "Rows read/s", v: (p) => p.db_rows_read, lab: ["rows_read", "Read"], split: true },
+    { id: "rwrite", title: "Rows written/s", v: (p) => sum(p.db_rows_inserted, p.db_rows_updated, p.db_rows_deleted), note: "inserted + updated + deleted" },
+    { id: "thr", title: "Running sessions", v: (p) => p.db_threads_running, lab: ["thr_running", "Running"] },
+    { id: "hit", title: "Buffer hit ratio", fmt: fmtPct, max: 100, v: (p) => p.db_bp_hit_pct, lab: ["bp", "Buffer pool"] },
+    { id: "dirty", title: "Dirty share of the buffer", fmt: fmtPct, max: 100, v: (p) => p.db_bp_dirty_pct, lab: ["bp_dirty", "Dirty pages"] },
+    { id: "redo", title: "Redo / WAL written", fmt: mbps, v: (p) => p.db_redo_written_bytes, lab: ["redo_written", "Redo written/s"] },
+    { id: "ckpt", title: "Checkpoint age", fmt: fmtBytes, v: (p) => p.db_checkpoint_age_bytes, lab: ["redo_age", "Checkpoint age"] },
+    { id: "hist", title: "MVCC backlog", v: (p) => p.db_history_list_length, lab: ["hll_history", "History list length"], split: true },
+    { id: "locks", title: "Lock waits", v: (p) => p.db_row_lock_waits, lab: ["hll_locks", "Row lock waits/s"], split: true },
+    { id: "dwrite", title: "Data files written", fmt: mbps, v: (p) => p.db_data_written_bytes },
+  ],
+  proc: [
+    { id: "pcpu", title: "Database server CPU", note: "cores in use", v: (p) => p.proc_cpu },
+    { id: "hcpu", title: "HammerDB CPU", note: "cores in use", v: (p) => p.hdb_cpu },
+    { id: "pmem", title: "Database server memory", fmt: fmtBytes, note: "PSS + SwapPSS", v: (p) => p.proc_pss_swap },
+    { id: "hmem", title: "HammerDB memory", fmt: fmtBytes, note: "PSS + SwapPSS", v: (p) => p.hdb_pss_swap },
+  ],
+  os: [
+    { id: "cpu", title: "CPU busy", fmt: fmtPct, max: 100, v: (p) => p.cpu_busy },
+    { id: "iowait", title: "IO wait", fmt: fmtPct, minMax: 5, v: (p) => p.cpu_iowait },
+    { id: "load", title: "Load (1 min)", v: (p) => p.load1 },
+    { id: "mem", title: "Memory used", fmt: fmtBytes, v: (p) => p.mem_used },
+    { id: "iops", title: "Disk operations/s", v: (p) => sum(p.disk_reads, p.disk_writes), note: "reads + writes" },
+    { id: "dwb", title: "Disk write throughput", fmt: mbps, v: (p) => p.disk_write_bytes },
+    { id: "drb", title: "Disk read throughput", fmt: mbps, v: (p) => p.disk_read_bytes },
+    { id: "util", title: "Disk utilization", fmt: fmtPct, max: 100, v: (p) => p.disk_util_max, note: "busiest device" },
+    { id: "psi-cpu", title: "CPU pressure", fmt: fmtPct, minMax: 5, v: (p) => p.psi_cpu_some, note: "% of time some tasks waited for CPU" },
+    { id: "psi-io", title: "IO pressure", fmt: fmtPct, minMax: 5, v: (p) => p.psi_io_full, note: "% of time all tasks stalled on IO" },
+    { id: "swap", title: "Swap used", fmt: fmtBytes, v: (p) => p.swap_used },
+    { id: "net", title: "Network", fmt: mbps, v: (p) => sum(p.net_rx_bytes, p.net_tx_bytes), note: "receive + transmit" },
+  ],
+};
+
+// ---------------------------------------------------------------------------
+// building the chart panels
+// ---------------------------------------------------------------------------
+const built = {};   // id -> { def, mode: "both" | "split", charts: [...] }
+const COLOR = { a: "--ca", b: "--cb" };
+function seriesName(def, s) {
+  const f = feeds[s];
+  return def.lab ? `${f.short} · ${f.label(def.lab[0], def.lab[1])}` : f.short;
+}
+function splitWanted(def) {
+  if (!def.split || feeds.a.id == null || feeds.b.id == null) return false;
+  return feeds.a.label(def.lab[0], def.lab[1]) !== feeds.b.label(def.lab[0], def.lab[1]);
+}
+function build(def, grid) {
+  const mode = splitWanted(def) ? "split" : "both";
+  const old = built[def.id];
+  if (old && old.mode === mode) {
+    for (const c of old.charts) for (const s of c.series) {
+      if (s.slot) s.name = def.runs ? feeds[s.slot].short : seriesName(def, s.slot);
+      else if (s.targetOf) s.name = `${feeds[s.targetOf].short} target`;
+    }
+    return;
+  }
+  let panel = document.getElementById("p-" + def.id);
+  if (!panel) { panel = document.createElement("div"); panel.className = "panel"; panel.id = "p-" + def.id; grid.appendChild(panel); }
+  const head = `<div class="phead"><h3>${esc(def.title)}</h3></div>${def.note ? `<p class="note" style="margin:-4px 0 6px">${esc(def.note)}</p>` : ""}`;
+  const opts = { fmt: def.fmt, max: def.max, minMax: def.minMax, connect: true, gap: 120 };
+  const charts = [];
+  if (def.runs) {
+    panel.innerHTML = head + `<div class="chart${def.tall ? " tall" : ""}" id="c-${def.id}"></div><div class="legend" id="l-${def.id}"></div>`;
+    charts.push(new Chart("c-" + def.id, [
+      ...SLOTS.map((s) => ({ slot: s, name: feeds[s].short, color: COLOR[s], points: true, width: 1.2, get: (p) => p[s] && p[s].ok ? 100 * p[s].nopm / p[s].target_nopm : null })),
+      { name: "Target", color: "--faint", dash: true, get: () => 100 },
+    ], { fmt: fmtPct, connect: true, minMax: 110, empty: "no completed runs yet",
+         tipTitle: (p) => "run finished " + new Date(p.t * 1000).toLocaleString() }));
+  } else if (mode === "both") {
+    panel.innerHTML = head + `<div class="chart${def.tall ? " tall" : ""}" id="c-${def.id}"></div><div class="legend" id="l-${def.id}"></div>`;
+    const series = SLOTS.map((s) => ({ slot: s, name: seriesName(def, s), color: COLOR[s], width: 2, get: (p) => p[s] ? def.v(p[s], feeds[s]) : null }));
+    if (def.target) for (const s of SLOTS) series.push({ targetOf: s, name: `${feeds[s].short} target`, color: COLOR[s], dash: true, get: () => def.target(feeds[s]) || null });
+    charts.push(new Chart("c-" + def.id, series, opts));
+  } else {
+    // the databases measure different things here: one chart (and axis) each
+    panel.innerHTML = head + `<div class="split">${SLOTS.map((s) =>
+      `<div><div class="chart" id="c-${def.id}-${s}"></div><div class="legend" id="l-${def.id}-${s}"></div></div>`).join("")}</div>`;
+    for (const s of SLOTS) charts.push(new Chart(`c-${def.id}-${s}`, [{ slot: s, name: seriesName(def, s), color: COLOR[s], width: 2, fill: true,
+      get: (p) => p[s] ? def.v(p[s], feeds[s]) : null }], opts));
+  }
+  built[def.id] = { def, mode, charts };
+}
+function buildAll() {
+  const grids = { bench: "g-bench", eff: "g-eff", db: "g-db", proc: "g-proc", os: "g-os" };
+  for (const [g, defs] of Object.entries(CHARTS)) for (const def of defs) build(def, $(grids[g]));
+}
+
+// ---------------------------------------------------------------------------
+// rendering
+// ---------------------------------------------------------------------------
+function renderCharts() {
+  const now = Date.now() / 1000, x0 = now - rangeMin * 60;
+  const { data, res } = merge(x0);
+  const runs = [];
+  for (const s of SLOTS) for (const r of feeds[s].results) {
+    const t = parseTs(r.finished_at); if (t && t >= x0 - (rangeMin <= 60 ? 3600 : 0)) runs.push({ t, [s]: r });
+  }
+  runs.sort((x, y) => x.t - y.t);
+  for (const { def, charts } of Object.values(built)) for (const c of charts) {
+    if (def.runs) c.set(runs, runs.length ? Math.min(runs[0].t, x0) : x0, now, 60);
+    else c.set(data, Math.max(x0, data.length ? data[0].t : x0), now, res);
+  }
+}
+
+const pctDiff = (a, b) => a == null || b == null || !a ? null : 100 * (b - a) / a;
+function diffCell(a, b, better) {
+  const d = pctDiff(a, b);
+  if (d == null || !isFinite(d)) return `<td class="d"></td>`;
+  const txt = Math.abs(d) < 0.05 ? "0%" : `${d > 0 ? "+" : ""}${Math.abs(d) >= 10 ? d.toFixed(0) : d.toFixed(1)}%`;
+  const word = Math.abs(d) < 2 ? "about the same" : better ? ((d > 0) === (better === "up") ? "better" : "worse") : "";
+  return `<td class="d"><b class="num">${txt}</b>${word ? ` · ${word}` : ""}</td>`;
+}
+function avgAchieved(f, n) {
+  const ok = f.results.filter((r) => r.ok && r.target_nopm).slice(-n);
+  return ok.length ? ok.reduce((x, r) => x + 100 * r.nopm / r.target_nopm, 0) / ok.length : null;
+}
+function liveNopm(f) {
+  const cut = Date.now() / 1000 - 60, pts = f.samples.filter((p) => p.t >= cut && p.nopm != null);
+  return pts.length ? pts.reduce((x, p) => x + p.nopm, 0) / pts.length : null;
+}
+// overview rows: [label, value(feed) -> [html, number|null], better: "up"|"down"|null]
+const OVERVIEW = [
+  ["Database", (f) => [f.info ? `<b>${esc(f.info.db.engine)}</b> ${esc(f.info.db.version)}` : null]],
+  ["Node", (f) => { const n = f.info && f.info.node; return [n ? `${esc(n.hostname)} · ${esc(n.ip)}<br><span class="neutral">${esc(n.os)}</span>` : null]; }],
+  ["CPUs", (f) => { const n = f.info && f.info.node; return [n ? `${n.cpus} × ${esc(n.cpu_model)}` : null, n && n.cpus]; }],
+  ["Memory", (f) => { const n = f.info && f.info.node; return [n ? fmtBytes(n.mem_total) : null, n && n.mem_total]; }],
+  ["Schema", (f) => { const d = f.info && f.info.db; return [d ? `${fmtInt(d.warehouses)} warehouses · ${fmtBytes(d.bench_db_size_bytes)}` : null, d && d.bench_db_size_bytes]; }],
+  ["Capacity", (f) => { const c = f.info && f.info.capacity; return [c ? `<b class="num">${fmtInt(c.nopm)}</b> NOPM · ${c.vu} VU` : "not measured", c && c.nopm]; }, "up"],
+  ["Capacity per vCPU", (f) => { const c = f.info && f.info.capacity, n = f.info && f.info.node; const v = c && n ? c.nopm / n.cpus : null; return [v ? `${fmtInt(v)} NOPM` : null, v]; }, "up"],
+  ["Workload", (f) => { const st = f.status && f.status.status; return [st ? `${esc(st.state)}${st.iteration ? ` · iteration ${st.iteration}` : ""}${st.percent ? ` · ${st.percent}% of capacity` : ""}` : null]; }],
+  ["Target", (f) => { const st = f.status && f.status.status; return [st && st.target_nopm ? `${fmtInt(st.target_nopm)} NOPM` : null, st && st.target_nopm]; }],
+  ["Live throughput", (f) => { const v = liveNopm(f), st = f.status && f.status.status; return [v != null ? `<b class="num">${fmtInt(v)}</b> NOPM${st && st.target_nopm ? ` · ${(100 * v / st.target_nopm).toFixed(1)}% of target` : ""}` : null, v]; }],
+  ["Last run", (f) => { const r = f.status && f.status.last_result; return [r ? (r.ok ? `${fmtInt(r.nopm)} NOPM · ${(100 * r.nopm / r.target_nopm).toFixed(1)}% of target` : `<span class="down">failed</span>`) + ` <span class="neutral">· ${ago(parseTs(r.finished_at))}</span>` : null, r && r.ok ? r.nopm : null]; }],
+  ["Target achieved (last 10 runs)", (f) => { const v = avgAchieved(f, 10); return [v != null ? fmtPct(v) : null]; }],
+  ["Runs", (f) => { const s = f.status && f.status.summary; return [s ? `${fmtInt(s.runs)} · ${s.ok === s.runs ? '<span class="up">all OK</span>' : `<span class="down">${s.runs - s.ok} failed</span>`} · since ${fmtWhen(parseTs(s.first_started_at))}` : null]; }],
+];
+function renderOverview() {
+  const [fa, fb] = [feeds.a, feeds.b];
+  const head = `<tr><th></th>${SLOTS.map((s) => `<th><span class="sw ${s}"></span> ${s.toUpperCase()} · ${esc(feeds[s].short)}</th>`).join("")}<th>B vs A</th></tr>`;
+  const err = (f) => f.error ? `<span class="down">${esc(f.error)}</span>` : "–";
+  $("overview").innerHTML = head + OVERVIEW.map(([label, fn, better]) => {
+    const [ha, va] = fn(fa), [hb, vb] = fn(fb);
+    return `<tr><td>${esc(label)}</td><td>${ha ?? err(fa)}</td><td>${hb ?? err(fb)}</td>${diffCell(va, vb, better)}</tr>`;
+  }).join("");
+  $("ov-aside").textContent = fa.info && fb.info ? `${fa.info.db.engine} vs ${fb.info.db.engine}` : "";
+  const msgs = SLOTS.filter((s) => feeds[s].error).map((s) => `${s.toUpperCase()} (${feeds[s].short}): ${feeds[s].error}`);
+  banner(msgs.length ? "Host not reachable — " + msgs.join(" · ") : null);
+}
+function renderConfig() {
+  const rows = [];
+  const cfg = (f, k) => f.info && f.info.config ? f.info.config[k] : null;
+  const it = (f) => f.info ? `${cfg(f, "WORKLOAD_RAMPUP")} + ${cfg(f, "WORKLOAD_DURATION")} min` : null;
+  const vu = (f) => { const c = f.info && f.info.capacity, w = cfg(f, "WORKLOAD_VU"); return f.info ? (w && w !== "0" ? w : c ? c.vu : "–") : null; };
+  rows.push(["Load level", (f) => f.info ? `${cfg(f, "WORKLOAD_PERCENT")}% of capacity` : null]);
+  rows.push(["Virtual users", vu]);
+  rows.push(["Iteration", it]);
+  rows.push(["Capacity test", (f) => f.info ? `${cfg(f, "CAPACITY_VU")} VU · ${cfg(f, "CAPACITY_RAMPUP")} + ${cfg(f, "CAPACITY_DURATION")} min` : null]);
+  rows.push(["Purge", (f) => f.info ? `keep ${cfg(f, "PURGE_RETENTION_HOURS")}h · every ${cfg(f, "PURGE_INTERVAL_MIN")} min` : null]);
+  rows.push(["HammerDB", (f) => cfg(f, "HAMMERDB_VERSION")]);
+  rows.push(["Data volume", (f) => { const fs = f.info && f.info.filesystem; return fs ? `${esc(fs.device)} · ${esc(fs.fstype)} · ${fmtBytes(fs.size)}` : null; }]);
+  const settings = (f) => f.info && f.info.db.settings ? f.info.db.settings.map(([k, v, t]) => `<div><span class="neutral">${esc(k)}:</span> ${t === "bytes" ? fmtBytes(+v) : esc(v)}</div>`).join("") : null;
+  rows.push(["Database settings", settings]);
+  const head = `<tr><th></th>${SLOTS.map((s) => `<th><span class="sw ${s}"></span> ${s.toUpperCase()} · ${esc(feeds[s].short)}</th>`).join("")}</tr>`;
+  $("config").innerHTML = head + rows.map(([k, fn]) => `<tr><td>${esc(k)}</td><td>${fn(feeds.a) ?? "–"}</td><td>${fn(feeds.b) ?? "–"}</td></tr>`).join("");
+}
+function banner(msg) { const b = $("banner"); b.style.display = msg ? "block" : "none"; b.textContent = msg || ""; }
+function renderAll() { buildAll(); renderCharts(); renderOverview(); renderConfig(); }
+
+// ---------------------------------------------------------------------------
+// selection, polling, controls
+// ---------------------------------------------------------------------------
+function saveSelection() {
+  const h = `#a=${pick.a ?? ""}&b=${pick.b ?? ""}&r=${rangeMin}`;
+  if (location.hash !== h) history.replaceState(null, "", h);
+}
+function readSelection() {
+  const q = new URLSearchParams(location.hash.slice(1));
+  for (const s of SLOTS) if (q.get(s) !== null && q.get(s) !== "") pick[s] = +q.get(s);
+  if (q.get("r")) rangeMin = +q.get("r");
+}
+async function select(slot, id) {
+  pick[slot] = id; feeds[slot].reset(id); saveSelection();
+  await Promise.all(["info", "status", "results", "metrics", "rollup"].map((w) => feeds[slot].poll(w)));
+  renderAll();
+}
+function fillSelects() {
+  for (const s of SLOTS) {
+    const sel = $("sel-" + s);
+    sel.innerHTML = hosts.map((h) => `<option value="${h.id}">${esc(h.name)}${h.engine ? ` — ${esc(h.engine)} ${esc(h.version || "")}` : h.ok ? "" : " (not reachable)"}</option>`).join("");
+    sel.value = pick[s] ?? "";
+  }
+}
+async function loadHosts() {
+  try {
+    hosts = (await (await fetch("api/hosts", { cache: "no-store" })).json()).hosts || [];
+  } catch (e) { banner("Compare server not reachable — retrying…"); return; }
+  if (!hosts.length) {
+    banner("No hosts configured: add Parma Ham dashboards with compare/install-compare.sh --add URL");
+  }
+  // default: the first two hosts
+  for (const [i, s] of SLOTS.entries()) if (pick[s] == null || !hosts.some((h) => h.id === pick[s])) pick[s] = hosts[i] ? hosts[i].id : (hosts[0] ? hosts[0].id : null);
+  fillSelects();
+}
+for (const s of SLOTS) $("sel-" + s).onchange = (e) => select(s, +e.target.value);
+$("swap").onclick = () => {
+  [feeds.a, feeds.b] = [feeds.b, feeds.a]; feeds.a.slot = "a"; feeds.b.slot = "b";
+  [pick.a, pick.b] = [pick.b, pick.a]; fillSelects(); saveSelection(); renderAll();
+};
+readSelection();
+for (const b of document.querySelectorAll("#range button")) {
+  b.classList.toggle("on", +b.dataset.min === rangeMin);
+  b.onclick = () => {
+    rangeMin = +b.dataset.min; saveSelection();
+    for (const x of document.querySelectorAll("#range button")) x.classList.toggle("on", x === b);
+    renderCharts();
+  };
+}
+try { const th = localStorage.getItem("pmh-theme"); if (th) document.documentElement.dataset.theme = th; } catch (e) {}
+$("theme").onclick = () => {
+  const dark = document.documentElement.dataset.theme ? document.documentElement.dataset.theme === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
+  const next = dark ? "light" : "dark"; document.documentElement.dataset.theme = next;
+  try { localStorage.setItem("pmh-theme", next); } catch (e) {}
+  for (const { charts } of Object.values(built)) for (const c of charts) { c.draw(); c.renderLegend(); }
+};
+
+const every = (what, ms, after) => setInterval(async () => { await Promise.all(SLOTS.map((s) => feeds[s].poll(what))); after(); }, ms);
+(async () => {
+  await loadHosts();
+  for (const s of SLOTS) feeds[s].reset(pick[s]);
+  saveSelection();
+  await Promise.all(SLOTS.flatMap((s) => ["info", "status", "results", "metrics", "rollup"].map((w) => feeds[s].poll(w))));
+  renderAll();
+  every("metrics", 5000, renderCharts);
+  every("status", 5000, renderOverview);
+  every("results", 60000, renderCharts);
+  every("rollup", 60000, renderCharts);
+  every("info", 300000, renderAll);
+  setInterval(async () => { await loadHosts(); }, 300000);
+})();
+</script>
+</body>
+</html>

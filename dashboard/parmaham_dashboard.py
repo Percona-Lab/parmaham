@@ -33,6 +33,8 @@ PMH_ETC = os.environ.get("PMH_ETC", "/etc/parmaham")
 PMH_STATE = os.environ.get("PMH_STATE", "/var/lib/parmaham")
 PMH_LOG = os.environ.get("PMH_LOG", "/var/log/parmaham")
 STATIC = os.path.join(HERE, "static")
+# shared with the compare page (compare/parmaham_compare.py)
+STATIC_FILES = {"/style.css": "text/css; charset=utf-8", "/chart.js": "text/javascript; charset=utf-8"}
 
 
 # ---------------------------------------------------------------------------
@@ -898,6 +900,8 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if url.path in ("/", "/index.html"):
                 self.send_file(os.path.join(STATIC, "index.html"), "text/html; charset=utf-8")
+            elif url.path in STATIC_FILES:
+                self.send_file(os.path.join(STATIC, url.path[1:]), STATIC_FILES[url.path])
             elif url.path == "/api/info":
                 self.send_json(api_info())
             elif url.path == "/api/status":

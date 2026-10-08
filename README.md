@@ -25,6 +25,7 @@ parmaham/
 │   └── hdb-*.tcl                  HammerDB build and run scripts
 ├── config/                        defaults + example /etc/parmaham/parmaham.conf
 ├── dashboard/                     public web dashboard (Python standard library only)
+├── compare/                       side-by-side comparison of two Parma Ham hosts
 ├── mysql/  mariadb/  postgresql/  one directory per database:
 │   ├── database-install.sh        install + tune the database server for this node
 │   ├── database-generate.sh ...   links to the common scripts
@@ -266,6 +267,37 @@ Implementation notes:
 * JSON API: `/api/info`, `/api/status`, `/api/metrics?since=<epoch>`,
   `/api/results?limit=N`.
 
+### `compare/install-compare.sh [--add URL [--name NAME]] [--remove URL] [--port 80]`
+
+A second page that shows any two Parma Ham workloads side by side, for
+example MariaDB on one node and PostgreSQL on another. It needs no database,
+so it can run on a small separate machine (1 GB is plenty; the server uses
+about 20 MB), or next to a dashboard on another `--port`.
+
+```bash
+compare/install-compare.sh --add http://192.0.2.10/ --name "MariaDB 13.0"
+compare/install-compare.sh --add http://192.0.2.11/ --name "PostgreSQL 18"   # http://<host>/
+```
+
+* Hosts are listed in `/etc/parmaham/compare-hosts` (`URL [name]` per line);
+  `--add`, `--remove` and `--list` edit it, and changes apply without a restart.
+* The page picks any two of them (A and B, with a swap button) and a time
+  range; the selection is kept in the URL, so a comparison can be shared as a link.
+* **Overview:** database and version, hardware, schema, capacity (also per
+  vCPU), load level, target, live throughput, last run and target achieved,
+  with a "B vs A" difference column.
+* **Charts:** every chart overlays both hosts on one time axis (A blue, B
+  orange; dashed lines are targets): throughput and the result of every run,
+  efficiency (NOPM per database CPU core, redo/WAL bytes and disk bytes
+  written per new order), database, process and operating system metrics.
+  Where the two databases measure different things under one name (rows
+  read, MVCC backlog, lock waits) the chart is split into one chart per host,
+  each with its own axis; otherwise each host's own metric name is shown in the legend.
+* **Configuration:** workload settings and each database's settings side by side.
+* The server only proxies the read-only API (`info`, `status`, `metrics`,
+  `results`, `lastrun`) of the listed hosts, so the viewer's browser needs to
+  reach only the compare page. Host clocks should be in sync (NTP).
+
 ## Files and services
 
 | Path | Contents |
@@ -283,6 +315,7 @@ Implementation notes:
 | `parmaham-dashboard.service` | dashboard |
 | `parmaham-procmem.service` | reads database server and HammerDB CPU and memory (VSZ/RSS/PSS) for the dashboard |
 | `parmaham-capacity.service` | transient, `compute-capacity.sh --background` |
+| `parmaham-compare.service` | the compare page (`compare/install-compare.sh`) |
 | `parmaham-thp.service` | disables transparent huge pages at boot |
 
 Useful commands:

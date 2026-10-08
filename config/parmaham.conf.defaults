@@ -81,6 +81,11 @@ DASHBOARD_HISTORY_MIN=60
 # 1-minute averages kept (and saved across restarts) for the long ranges
 DASHBOARD_ROLLUP_HOURS=24
 
+# --- Compare page (compare/install-compare.sh) -------------------------------
+# Hosts to compare are listed in /etc/parmaham/compare-hosts
+COMPARE_BIND=0.0.0.0
+COMPARE_PORT=80
+
 # --- Tool versions ----------------------------------------------------------
 HAMMERDB_VERSION=6.0
 # Oracle MySQL client library version HammerDB's mysqltcl is loaded against

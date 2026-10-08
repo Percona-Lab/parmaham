@@ -81,7 +81,7 @@ install_payload() {
     if [[ $PMH_SRC != "$PMH_HOME" ]]; then
         local d
         # every database directory: plug-ins may share code (mariadb uses mysql/lib)
-        for d in common config dashboard $PMH_DATABASES; do
+        for d in common config dashboard compare $PMH_DATABASES; do
             rm -rf "${PMH_HOME:?}/$d"
             # no -a: do not carry over the clone's owner or SELinux label
             # (files under /root are admin_home_t, which systemd may not execute)
