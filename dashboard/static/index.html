@@ -459,7 +459,12 @@ function niceTimeStep(sec) {
 // ---------------------------------------------------------------------------
 const M = (key, name, color, extra = {}) => ({ key, name, color, ...extra });
 const mbps = (v) => fmtBytes(v, "/s");
+// Memory values that cannot be resident would flatten the server memory chart
+// and are not plotted: VSZ far above RAM + swap is reserved address space
+// (MariaDB reserves innodb_buffer_pool_size_max), and RSS above RAM is a sum
+// over processes that counts shared memory once per process (PostgreSQL).
 const vszShown = (p) => p.proc_vsz != null && !(p.mem_total && p.proc_vsz > 4 * (p.mem_total + (p.swap_total || 0)));
+const rssShown = (p) => p.proc_rss != null && !(p.mem_total && p.proc_rss > p.mem_total);
 const charts = {
   tput: new Chart("c-tput", [M("nopm", "NOPM", "--c1", { fill: true, width: 2 }), M("tpm", "TPM", "--c2"), { name: "Target NOPM", color: "--c4", dash: true, get: () => targetNopm }], { gap: 30 }),
   hist: new Chart("c-hist", [M("nopm", "NOPM", "--c1", { points: true, width: 1.4 }), M("target_nopm", "Target", "--c4", { dash: true }), M("tpm", "TPM", "--c2", { width: 1 })],
@@ -481,9 +486,8 @@ const charts = {
   pcpu: new Chart("c-pcpu", [{ key: "proc_cpu", name: "mysqld", color: "--c1", fill: true, width: 2 }, M("hdb_cpu", "HammerDB", "--c2", { width: 2 }), { name: "Node CPUs", color: "--c5", dash: true, get: () => info && info.node ? info.node.cpus : null }],
     { fmt: (v) => v.toFixed(2), empty: "waiting for parmaham-procmem.service…" }),
   hmem: new Chart("c-hmem", [M("hdb_vsz", "VSZ", "--c5"), M("hdb_rss", "RSS", "--c1", { fill: true, width: 2 }), M("hdb_pss_swap", "PSS + SwapPSS", "--c2", { width: 2 })], { fmt: fmtBytes, gap: 30, empty: "HammerDB is not running" }),
-  // VSZ far above RAM + swap is reserved address space (MariaDB reserves
-  // innodb_buffer_pool_size_max), which would flatten the chart: not plotted
-  pmem: new Chart("c-pmem", [{ key: "proc_vsz", name: "VSZ", color: "--c5", get: (p) => vszShown(p) ? p.proc_vsz : null }, M("proc_rss", "RSS", "--c1", { fill: true, width: 2 }), M("proc_pss_swap", "PSS + SwapPSS", "--c2", { width: 2 })], { fmt: fmtBytes, empty: "waiting for parmaham-procmem.service…" }),
+  pmem: new Chart("c-pmem", [{ key: "proc_vsz", name: "VSZ", color: "--c5", get: (p) => vszShown(p) ? p.proc_vsz : null },
+    { key: "proc_rss", name: "RSS", color: "--c1", fill: true, width: 2, get: (p) => rssShown(p) ? p.proc_rss : null }, M("proc_pss_swap", "PSS + SwapPSS", "--c2", { width: 2 })], { fmt: fmtBytes, empty: "waiting for parmaham-procmem.service…" }),
   vol: new Chart("c-vol", [M("vol_used", "Used", "--c1", { fill: true, width: 2 }), M("vol_avail", "Available", "--c3"), M("vol_size", "Size", "--c5", { dash: true })], { fmt: fmtBytes, empty: "waiting for database information…" }),
   swap: new Chart("c-swap", [M("swap_in_bytes", "Swap in", "--c1", { fill: true, width: 2 }), M("swap_out_bytes", "Swap out", "--c4", { width: 2 })], { fmt: mbps, minMax: 1048576 }),
   ctx: new Chart("c-ctx", [M("ctx_switches", "Context switches/s", "--c1"), M("major_faults", "Major faults/s", "--c4")]),
@@ -545,7 +549,8 @@ function renderMetrics() {
     $("psi-now").innerHTML = [["CPU some", last.psi_cpu_some], ["Memory full", last.psi_memory_full], ["IO full", last.psi_io_full]]
       .map(([k, v]) => `<div><div class="k">${k}</div><div class="v num" style="color:${v > 10 ? css("--bad") : v > 1 ? css("--warn") : "inherit"}">${fmtPct(v)}</div></div>`).join("");
     $("proc-aside").textContent = last.proc_rss != null ? `${info && info.db_process || "server"} ${fmtBytes(last.proc_pss_swap ?? last.proc_rss)} · HammerDB ${last.hdb_rss != null ? fmtBytes(last.hdb_pss_swap ?? last.hdb_rss) : "not running"}` : "";
-    $("pmem-note").textContent = last.proc_vsz != null && !vszShown(last) ? `VSZ ${fmtBytes(last.proc_vsz)} (reserved address space) not plotted` : dbLabel("pmem_note", LABEL_DEFAULTS.pmem_note);
+    const hidden = [[last.proc_vsz, vszShown(last), "VSZ"], [last.proc_rss, rssShown(last), "RSS"]].filter(([v, shown]) => v != null && !shown).map(([v, , n]) => `${n} ${fmtBytes(v)}`);
+    $("pmem-note").textContent = hidden.length ? hidden.join(" · ") + " not plotted" : dbLabel("pmem_note", LABEL_DEFAULTS.pmem_note);
     $("swap-note").textContent = last.swap_total ? `${fmtBytes(last.swap_used)} of ${fmtBytes(last.swap_total)} used` : "no swap configured";
     const fs = info && info.filesystem;
     $("vol-note").textContent = last.vol_size ? `${fs ? fs.device + " · " + fs.fstype + " · " : ""}${fmtPct(last.vol_used_pct)} used` : "";

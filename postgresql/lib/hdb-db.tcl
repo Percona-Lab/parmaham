@@ -18,9 +18,15 @@ diset tpcc pg_storedprocs true
 # period; autovacuum does the work during the run
 diset tpcc pg_vacuum false
 
+# HammerDB's transaction counter connects as pg_superuser to read
+# pg_stat_database, which any user may read: in runs it uses the benchmark
+# user (the workload service cannot read the superuser's password)
+diset tpcc pg_superuser     [pmh_env PMH_DB_USER hammerdb]
+diset tpcc pg_superuserpass [pmh_env PMH_DB_PASS]
+diset tpcc pg_defaultdbase  postgres
+
 proc pmh_build_settings {} {
     # the superuser creates the benchmark user and database
     diset tpcc pg_superuser     [pmh_env PMH_DB_SUPERUSER postgres]
     diset tpcc pg_superuserpass [pmh_env PMH_DB_SUPERPASS]
-    diset tpcc pg_defaultdbase  postgres
 }

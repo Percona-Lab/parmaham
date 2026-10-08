@@ -61,7 +61,7 @@ LABELS = {
     "hll_history": "Dead tuples (not yet vacuumed)",
     "hll_locks": "Sessions waiting on locks",
     "history_short": "dead tuples",
-    "pmem_note": "RSS counts shared buffers once per process; PSS shares them out",
+    "pmem_note": "all postgres processes; PSS shares out shared buffers",
 }
 
 SETTINGS = [
@@ -205,12 +205,16 @@ SELECT d.xact, ({stmts}), d.ret, d.ins, d.upd, d.del, io.*, w.lsn, w.age, d.hit 
         for name, setting, unit in rows:
             if unit in UNIT_BYTES:
                 v[name] = (int(float(setting) * UNIT_BYTES[unit]), "bytes")
+            elif unit == "s" and int(setting) % 60 == 0:
+                v[name] = (f"{int(setting) // 60} min", None)
             elif unit:
                 v[name] = (f"{setting} {unit}", None)
             else:
                 v[name] = (setting, None)
+        # version(): "PostgreSQL 18.6 (...) on x86_64-pc-linux-gnu, compiled by ..."
+        platform = v.get("version()", ("", None))[0].partition(" on ")[2].split(",")[0]
         info = {"engine": self.name, "version": v.get("server_version", ("", None))[0],
-                "version_comment": v.get("version()", ("", None))[0],
+                "version_comment": platform,
                 "datadir": v.get("data_directory", (None, None))[0]}
         info["settings"] = [[label, v[n][0], v[n][1]] for n, label in SETTINGS if n in v]
         ext = sorted(e for e in f["extensions"] if e and e != "plpgsql")

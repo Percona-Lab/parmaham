@@ -57,7 +57,7 @@ hammerdb_cli hdb-build.tcl 2>&1 | tee "$LOGFILE" | grep -E --line-buffered 'PARM
 
 BUILT=$(db_bench "SELECT COUNT(*) FROM warehouse" 2>/dev/null || echo 0)
 [[ $BUILT == "$WAREHOUSES" ]] || die "schema build failed: expected $WAREHOUSES warehouses, found $BUILT (see $LOGFILE)"
-grep -q 'TPCC SCHEMA COMPLETE' "$LOGFILE" || die "schema build did not complete (see $LOGFILE)"
+grep -qE '(TPCC|HAMMERDB) SCHEMA COMPLETE' "$LOGFILE" || die "schema build did not complete (see $LOGFILE)"
 
 db_after_build
 SIZE_MB=$(db_schema_size_mb)
