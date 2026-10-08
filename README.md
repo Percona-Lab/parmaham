@@ -328,7 +328,24 @@ with Percona Server 9.7.2 and HammerDB 6.0:
 * The dashboard rendered without JavaScript errors in light and dark themes
   and at phone width.
 
-Not tested yet: Debian 12, aarch64, and multi-day runs.
+Multi-database support was tested on fresh **Ubuntu 24.04** Linode VMs
+(2 vCPU, 4 GB) with HammerDB 6.0, 50 warehouses (10 for Percona Server),
+a short capacity test (16 VU, 2 + 6 min) and 50% paced iterations:
+
+| Database | Capacity | Paced iterations (% of target) |
+|----------|---------:|--------------------------------|
+| Oracle MySQL Community Server 26.7.0 (Innovation) | 23,985 NOPM | 99.3% |
+| Percona Server for MySQL 9.7.2 (10 warehouses, 8 VU) | 33,660 NOPM | 98.9% |
+| MariaDB 13.0.2 | 25,526 NOPM | 98.8%, 100.3% |
+| PostgreSQL 18.6 (PGDG) | 42,022 NOPM | 100.2%, 99.6% |
+
+For every database the install, schema build, capacity measurement,
+workload service, purge (timer and a forced purge that deleted 74k to 211k
+orders next to the running workload) and dashboard worked, with no JavaScript
+errors in light and dark themes or at phone width.
+
+Not tested yet: MariaDB and PostgreSQL on RHEL/Rocky, Debian 12, aarch64,
+and multi-day runs with MariaDB and PostgreSQL.
 
 ## License
 

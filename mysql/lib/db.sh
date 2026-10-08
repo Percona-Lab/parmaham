@@ -58,7 +58,7 @@ write_client_cnf() {
         echo "user=$2"
         echo "password=$3"
         # an empty socket= would make the client use an empty path
-        [[ -n ${MYSQL_SOCKET:-} ]] && echo "socket=$MYSQL_SOCKET"
+        if [[ -n ${MYSQL_SOCKET:-} ]]; then echo "socket=$MYSQL_SOCKET"; fi
     } | write_cnf "$1" "$4" "$5"
 }
 

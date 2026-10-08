@@ -597,8 +597,9 @@ function openLiveLog() {
 }
 $("p-log").onclick = (e) => { e.preventDefault(); openLiveLog(); };
 $("logdlg").addEventListener("close", stopLive);
+let lastRunData = null;
 async function pollLastRun() {
-  try { renderLastRun(await getJSON("/api/lastrun")); } catch (e) {}
+  try { lastRunData = await getJSON("/api/lastrun"); renderLastRun(lastRunData); } catch (e) {}
 }
 let lrReport = null, lrKey = null;
 function renderLastRun(d) {
@@ -640,7 +641,12 @@ async function pollStatus() {
   } catch (e) { connection(false); }
 }
 async function pollInfo() {
-  try { info = await getJSON("/api/info"); renderInfo(); renderStatus(); } catch (e) {}
+  try {
+    const first = !info;
+    info = await getJSON("/api/info"); renderInfo(); renderStatus();
+    // the last run's summary names the database from info
+    if (first && lastRunData) renderLastRun(lastRunData);
+  } catch (e) {}
 }
 async function pollResults() {
   try {
