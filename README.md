@@ -198,7 +198,7 @@ Re-running the script keeps the installation and only regenerates the tuning.
 * `--background` runs the measurement as the systemd unit `parmaham-capacity`,
   so it survives a closed SSH session.
 
-### `install-workload.sh [--percent 50] [--vu N] [--rampup 1] [--duration 60] [--sleep 0]`
+### `install-workload.sh [--percent 50 | --nopm N] [--vu N] [--rampup 1] [--duration 60] [--sleep 0]`
 
 Installs `parmaham-workload.service` (`Restart=always`), which loops forever:
 
@@ -224,6 +224,14 @@ injects *pacing* into HammerDB's standard timed driver:
 
 The transaction mix, schema and result calculation remain standard HammerDB.
 `--percent 100` runs unthrottled.
+
+**Fixed target.** `--nopm N` runs at N new orders per minute instead of a
+share of the measured capacity, for example to compare nodes at the same
+absolute load. It needs no capacity measurement (the virtual users then
+default to `CAPACITY_VU`); with one, the dashboard also shows the target as a
+share of it, and the script warns when the target is above it. `--percent`
+switches back. Options are checked before they are saved, so a rejected
+change never reaches the running workload.
 
 ### `install-hammerdb-purge.sh [--retention-hours 24] [--interval-min 15] [--run-now]`
 
@@ -287,7 +295,9 @@ Runs a public dashboard with no login, by design. It shows:
   user, plus the loop script and log filter) and any `hammerdbcli` started by
   hand.
 * **Operating system:** pressure stall information (CPU, memory and IO
-  `some`/`full`), CPU breakdown including steal, load and run queue, memory and
+  `some`/`full`), CPU breakdown, CPU steal on its own chart (the share of CPU
+  time the hypervisor gave to other guests, and how many vCPUs that amounts to:
+  steady steal means the node does not get all its vCPUs), load and run queue, memory and
   swap usage, swap-in/swap-out rate, disk IOPS, throughput and utilization, network, context switches and
   major faults.
 * **Environment:** hardware (CPU model and topology, NUMA, memory, disks, NICs,
@@ -348,8 +358,8 @@ compare/install-compare.sh --add http://192.0.2.11/ --name "PostgreSQL 18"   # h
 * The page picks any two of them (A and B, with a swap button) and a time
   range; the selection is kept in the URL, so a comparison can be shared as a link.
 * **Overview:** database and version, hardware, schema, capacity (also per
-  vCPU), load level, target, live throughput, last run and target achieved,
-  with a "B vs A" difference column.
+  vCPU), load level (a share of capacity or a fixed target), target, CPU steal,
+  live throughput, last run and target achieved, with a "B vs A" difference column.
 * **Charts:** every chart overlays both hosts on one time axis (A blue, B
   orange; dashed lines are targets): throughput and the result of every run,
   efficiency (NOPM per database CPU core, redo/WAL bytes and disk bytes

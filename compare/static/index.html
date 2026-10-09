@@ -193,6 +193,7 @@ const CHARTS = {
   ],
   os: [
     { id: "cpu", title: "CPU busy", fmt: fmtPct, max: 100, v: (p) => p.cpu_busy },
+    { id: "steal", title: "CPU steal", fmt: fmtPct, minMax: 5, v: (p) => p.cpu_steal, note: "% of the node's CPU time the hypervisor gave to other guests: steady steal means the node does not get all its vCPUs" },
     { id: "iowait", title: "IO wait", fmt: fmtPct, minMax: 5, v: (p) => p.cpu_iowait },
     { id: "load", title: "Load (1 min)", v: (p) => p.load1 },
     { id: "mem", title: "Memory used", fmt: fmtBytes, v: (p) => p.mem_used },
@@ -290,9 +291,15 @@ function avgAchieved(f, n) {
   const ok = f.results.filter((r) => r.ok && r.target_nopm).slice(-n);
   return ok.length ? ok.reduce((x, r) => x + 100 * r.nopm / r.target_nopm, 0) / ok.length : null;
 }
-function liveNopm(f) {
-  const cut = Date.now() / 1000 - 60, pts = f.samples.filter((p) => p.t >= cut && p.nopm != null);
-  return pts.length ? pts.reduce((x, p) => x + p.nopm, 0) / pts.length : null;
+function lastMinute(f, key) {
+  const cut = Date.now() / 1000 - 60, pts = f.samples.filter((p) => p.t >= cut && p[key] != null);
+  return pts.length ? pts.reduce((x, p) => x + p[key], 0) / pts.length : null;
+}
+const liveNopm = (f) => lastMinute(f, "nopm");
+// "50% of capacity", "fixed target · 43.7% of capacity", or "fixed target"
+function loadLevel(mode, pct) {
+  const of = pct != null ? `${+pct}% of capacity` : "";
+  return mode === "nopm" ? "fixed target" + (of ? " · " + of : "") : of || "–";
 }
 // overview rows: [label, value(feed) -> [html, number|null], better: "up"|"down"|null]
 const OVERVIEW = [
@@ -303,8 +310,9 @@ const OVERVIEW = [
   ["Schema", (f) => { const d = f.info && f.info.db; return [d ? `${fmtInt(d.warehouses)} warehouses · ${fmtBytes(d.bench_db_size_bytes)}` : null, d && d.bench_db_size_bytes]; }],
   ["Capacity", (f) => { const c = f.info && f.info.capacity; return [c ? `<b class="num">${fmtInt(c.nopm)}</b> NOPM · ${c.vu} VU` : "not measured", c && c.nopm]; }, "up"],
   ["Capacity per vCPU", (f) => { const c = f.info && f.info.capacity, n = f.info && f.info.node; const v = c && n ? c.nopm / n.cpus : null; return [v ? `${fmtInt(v)} NOPM` : null, v]; }, "up"],
-  ["Workload", (f) => { const st = f.status && f.status.status; return [st ? `${esc(st.state)}${st.iteration ? ` · iteration ${st.iteration}` : ""}${st.percent ? ` · ${st.percent}% of capacity` : ""}` : null]; }],
+  ["Workload", (f) => { const st = f.status && f.status.status; return [st ? `${esc(st.state)}${st.iteration ? ` · iteration ${st.iteration}` : ""}${st.target_nopm ? ` · ${loadLevel(st.target_mode, st.percent)}` : ""}` : null]; }],
   ["Target", (f) => { const st = f.status && f.status.status; return [st && st.target_nopm ? `${fmtInt(st.target_nopm)} NOPM` : null, st && st.target_nopm]; }],
+  ["CPU steal (last minute)", (f) => { const v = lastMinute(f, "cpu_steal"), n = f.info && f.info.node; return [v != null ? `${fmtPct(v)}${n ? ` · ≈ ${(v * n.cpus / 100).toFixed(2)} of ${n.cpus} vCPUs` : ""}` : null]; }],
   ["Live throughput", (f) => { const v = liveNopm(f), st = f.status && f.status.status; return [v != null ? `<b class="num">${fmtInt(v)}</b> NOPM${st && st.target_nopm ? ` · ${(100 * v / st.target_nopm).toFixed(1)}% of target` : ""}` : null, v]; }],
   ["Last run", (f) => { const r = f.status && f.status.last_result; return [r ? (r.ok ? `${fmtInt(r.nopm)} NOPM · ${(100 * r.nopm / r.target_nopm).toFixed(1)}% of target` : `<span class="down">failed</span>`) + ` <span class="neutral">· ${ago(parseTs(r.finished_at))}</span>` : null, r && r.ok ? r.nopm : null]; }],
   ["Target achieved (last 10 runs)", (f) => { const v = avgAchieved(f, 10); return [v != null ? fmtPct(v) : null]; }],
@@ -327,7 +335,7 @@ function renderConfig() {
   const cfg = (f, k) => f.info && f.info.config ? f.info.config[k] : null;
   const it = (f) => f.info ? `${cfg(f, "WORKLOAD_RAMPUP")} + ${cfg(f, "WORKLOAD_DURATION")} min` : null;
   const vu = (f) => { const c = f.info && f.info.capacity, w = cfg(f, "WORKLOAD_VU"); return f.info ? (w && w !== "0" ? w : c ? c.vu : "–") : null; };
-  rows.push(["Load level", (f) => f.info ? `${cfg(f, "WORKLOAD_PERCENT")}% of capacity` : null]);
+  rows.push(["Load level", (f) => f.info ? (+cfg(f, "WORKLOAD_NOPM") > 0 ? `fixed target of ${fmtInt(+cfg(f, "WORKLOAD_NOPM"))} NOPM` : `${cfg(f, "WORKLOAD_PERCENT")}% of capacity`) : null]);
   rows.push(["Virtual users", vu]);
   rows.push(["Iteration", it]);
   rows.push(["Capacity test", (f) => f.info ? `${cfg(f, "CAPACITY_VU")} VU · ${cfg(f, "CAPACITY_RAMPUP")} + ${cfg(f, "CAPACITY_DURATION")} min` : null]);

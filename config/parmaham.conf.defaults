@@ -65,6 +65,9 @@ CAPACITY_DURATION=30
 # --- Permanent workload -----------------------------------------------------
 # Percent of measured capacity (NOPM) to run
 WORKLOAD_PERCENT=50
+# Fixed target in new orders per minute instead of the percentage (0 = use
+# WORKLOAD_PERCENT). Needs no capacity measurement.
+WORKLOAD_NOPM=0
 # Virtual users (0 = same as CAPACITY_VU)
 WORKLOAD_VU=0
 # Each iteration: rampup minutes, measured minutes, then sleep seconds

@@ -1,5 +1,18 @@
 # Changelog
 
+## Fixed NOPM target and CPU steal (2026-10-09)
+
+* `install-workload.sh --nopm N` runs the permanent workload at a fixed number
+  of new orders per minute instead of a share of the measured capacity, and
+  needs no capacity measurement. `--percent` switches back. Status and results
+  record `target_mode` (`percent` or `nopm`) and the target as a share of the
+  capacity when there is one; the dashboard and compare page show either.
+* `install-workload.sh` checks its options before saving them, so a rejected
+  change no longer reaches the running workload's configuration.
+* Dashboard and compare page: a CPU steal chart (share of CPU time the
+  hypervisor gave to other guests, with the vCPUs that amounts to); the
+  compare overview shows the last minute's steal for both hosts.
+
 ## OrioleDB and pgrust (2026-10-09)
 
 ### New

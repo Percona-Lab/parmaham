@@ -295,6 +295,47 @@ hammerdb_timed_run() {
     echo "$6 $9"
 }
 
+# Target of the permanent workload. Sets TARGET_MODE (percent: a share of the
+# measured capacity, nopm: the fixed WORKLOAD_NOPM), TARGET_NOPM, TARGET_PCT
+# (share of the measured capacity, or null without a measurement), CAP_NOPM
+# (or null) and VU. A fixed target needs no capacity measurement. Returns 1
+# and sets TARGET_ERROR when there is nothing to base the target on.
+workload_target() {
+    local cap=$PMH_STATE/capacity.json cap_vu=""
+    CAP_NOPM=null
+    if [[ -r $cap ]]; then
+        CAP_NOPM=$(json_get "$cap" nopm)
+        cap_vu=$(json_get "$cap" vu)
+    fi
+    VU=$WORKLOAD_VU
+    (( VU > 0 )) || VU=${cap_vu:-$CAPACITY_VU}
+    if (( ${WORKLOAD_NOPM:-0} > 0 )); then
+        TARGET_MODE=nopm
+        TARGET_NOPM=$WORKLOAD_NOPM
+        TARGET_PCT=null
+        [[ $CAP_NOPM == null ]] || TARGET_PCT=$(awk -v t="$TARGET_NOPM" -v c="$CAP_NOPM" 'BEGIN { printf "%.1f", 100 * t / c }')
+    else
+        if [[ $CAP_NOPM == null ]]; then
+            TARGET_ERROR="no capacity measurement - run compute-capacity.sh, or set a fixed target with install-workload.sh --nopm N"
+            return 1
+        fi
+        TARGET_MODE=percent
+        TARGET_NOPM=$(( CAP_NOPM * WORKLOAD_PERCENT / 100 ))
+        TARGET_PCT=$WORKLOAD_PERCENT
+    fi
+}
+
+# "11,437 NOPM (50% of capacity)" or "10000 NOPM (fixed target, 43.7% of capacity)"
+target_text() {
+    local of=""
+    [[ $TARGET_PCT == null ]] || of="$TARGET_PCT% of $CAP_NOPM"
+    if [[ $TARGET_MODE == nopm ]]; then
+        echo "$TARGET_NOPM NOPM (fixed target${of:+, $of})"
+    else
+        echo "$TARGET_NOPM NOPM ($of)"
+    fi
+}
+
 # Status shown by the dashboard: write_status state key value ...
 write_status() {
     local state=$1; shift

@@ -83,6 +83,7 @@
       <div class="psi" id="psi-now"></div>
       <div class="chart" id="c-psi"></div><div class="legend" id="l-psi"></div></div>
     <div class="panel"><div class="phead"><h3>CPU</h3></div><div class="chart" id="c-cpu"></div><div class="legend" id="l-cpu"></div></div>
+    <div class="panel"><div class="phead"><h3>CPU steal</h3><span class="cur" id="steal-note">time the hypervisor gave to other guests</span></div><div class="chart" id="c-steal"></div><div class="legend" id="l-steal"></div></div>
     <div class="panel"><div class="phead"><h3>Load &amp; run queue</h3></div><div class="chart" id="c-load"></div><div class="legend" id="l-load"></div></div>
     <div class="panel"><div class="phead"><h3>Memory</h3></div><div class="chart" id="c-mem"></div><div class="legend" id="l-mem"></div></div>
     <div class="panel"><div class="phead"><h3>Swap activity</h3><span class="cur" id="swap-note"></span></div><div class="chart" id="c-swap"></div><div class="legend" id="l-swap"></div></div>
@@ -136,6 +137,9 @@ const charts = {
   redo: new Chart("c-redo", [M("db_redo_written_bytes", "Redo written/s", "--c1", { fill: true }), M("db_checkpoint_age_bytes", "Checkpoint age", "--c2")], { fmt: fmtBytes }),
   hll: new Chart("c-hll", [M("db_history_list_length", "History list length", "--c5", { fill: true }), M("db_row_lock_waits", "Row lock waits/s", "--c4")]),
   psi: new Chart("c-psi", [M("psi_cpu_some", "CPU some", "--c1"), M("psi_memory_some", "Mem some", "--c5"), M("psi_memory_full", "Mem full", "--c7", { dash: true }), M("psi_io_some", "IO some", "--c2"), M("psi_io_full", "IO full", "--c4", { dash: true })], { fmt: fmtPct, minMax: 5 }),
+  // Steal: CPU time this VM wanted but the hypervisor gave to others; any
+  // steady steal means the node does not get all of its vCPUs
+  steal: new Chart("c-steal", [M("cpu_steal", "Steal (% of all CPU time)", "--c5", { fill: true, width: 2 })], { fmt: fmtPct, minMax: 5 }),
   cpu: new Chart("c-cpu", [M("cpu_user", "User", "--c1"), { name: "System", color: "--c2", get: (p) => p.cpu_system == null ? null : p.cpu_system + p.cpu_irq + p.cpu_softirq }, M("cpu_iowait", "IO wait", "--c4"), M("cpu_steal", "Steal", "--c5"), M("cpu_nice", "Nice", "--c6")], { fmt: fmtPct, stacked: true, max: 100 }),
   load: new Chart("c-load", [M("load1", "Load 1m", "--c1", { fill: true }), M("procs_running", "Runnable", "--c3"), M("procs_blocked", "Blocked (D)", "--c4")]),
   mem: new Chart("c-mem", [M("mem_used", "Used", "--c1", { fill: true }), M("mem_cached", "Page cache", "--c3"), M("mem_dirty", "Dirty", "--c2"), M("swap_used", "Swap used", "--c4")], { fmt: fmtBytes }),
@@ -156,6 +160,12 @@ const charts = {
 // ---------------------------------------------------------------------------
 // state & polling
 // ---------------------------------------------------------------------------
+// "50% of capacity", "fixed target · 43.7% of capacity", or "fixed target"
+// without a capacity measurement; results from before fixed targets have no mode
+function loadLevel(mode, pct) {
+  const of = pct != null ? `${+pct}% of capacity` : "";
+  return mode === "nopm" ? "fixed target" + (of ? " · " + of : "") : of || "–";
+}
 let samples = [], lastT = 0, rollup = [], rollupT = 0, rangeMin = 15, targetNopm = null, info = null, status = null, results = [];
 try { const r = localStorage.getItem("pmh-range"); if (r) rangeMin = +r; } catch (e) {}
 try { const th = localStorage.getItem("pmh-theme"); if (th) document.documentElement.dataset.theme = th; } catch (e) {}
@@ -214,7 +224,9 @@ function renderMetrics() {
     $("swap-note").textContent = last.swap_total ? `${fmtBytes(last.swap_used)} of ${fmtBytes(last.swap_total)} used` : "no swap configured";
     const fs = info && info.filesystem;
     $("vol-note").textContent = last.vol_size ? `${fs ? fs.device + " · " + fs.fstype + " · " : ""}${fmtPct(last.vol_used_pct)} used` : "";
-    $("os-aside").textContent = `CPU ${fmtPct(last.cpu_busy)} busy · load ${fmtNum(last.load1)} · memory ${fmtBytes(last.mem_used)} of ${fmtBytes(last.mem_total)}`;
+    const cpus = info && info.node ? info.node.cpus : null;
+    $("steal-note").textContent = last.cpu_steal == null ? "" : cpus ? `now ≈ ${(last.cpu_steal * cpus / 100).toFixed(2)} of ${cpus} vCPUs taken by the hypervisor` : "";
+    $("os-aside").textContent = `${last.cpu_steal >= 1 ? `CPU steal ${fmtPct(last.cpu_steal)} · ` : ""}CPU ${fmtPct(last.cpu_busy)} busy · load ${fmtNum(last.load1)} · memory ${fmtBytes(last.mem_used)} of ${fmtBytes(last.mem_total)}`;
     $("db-aside").textContent = last.db_up ? `${fmtInt(last.db_threads_connected)} connections · ${dbLabel("history_short", "history list")} ${fmtInt(last.db_history_list_length)}` : "database not reachable";
   }
 }
@@ -277,7 +289,7 @@ function renderLastRun(d) {
     ["Started", started ? new Date(started * 1000).toLocaleString() : null],
     ["Finished", finished ? `${new Date(finished * 1000).toLocaleString()} · took ${fmtDur(finished - started)}` : null],
     ["Throughput", r && r.ok ? `<b class="num">${fmtInt(r.nopm)}</b> NOPM · <b class="num">${fmtInt(r.tpm)}</b> TPM` : (s && s.nopm ? `${fmtInt(s.nopm)} NOPM · ${fmtInt(s.tpm)} TPM` : "no result")],
-    ["Target", r && r.target_nopm ? `${fmtInt(r.target_nopm)} NOPM (${r.percent}% of capacity)` + (ratio != null ? ` · <span class="${Math.abs(ratio - 100) <= 5 ? "up" : "down"}">${ratio.toFixed(1)}% achieved</span>` : "") : null],
+    ["Target", r && r.target_nopm ? `${fmtInt(r.target_nopm)} NOPM (${loadLevel(r.target_mode, r.percent)})` + (ratio != null ? ` · <span class="${Math.abs(ratio - 100) <= 5 ? "up" : "down"}">${ratio.toFixed(1)}% achieved</span>` : "") : null],
     ["HammerDB result", s && s.result_line ? `<span class="mono">${esc(s.result_line)}</span>` : null],
     ["Test period", s && s.duration_min != null ? `${s.rampup_min} min warm-up + ${s.duration_min} min measured` : null],
     ["Virtual users", vu != null ? `${vu}${s ? ` · ${s.vu_success} finished OK${s.vu_failed ? `, <span class="down">${s.vu_failed} failed</span>` : ""}` : ""}` : null],
@@ -334,11 +346,13 @@ function renderStatus() {
 
   if (status.db_error) banner("Database metrics unavailable: " + status.db_error); else if ($("banner").textContent.startsWith("Database")) banner(null);
 
-  const cap = info && info.capacity;
-  targetNopm = st.target_nopm ?? (cap && info.config ? Math.round(cap.nopm * info.config.WORKLOAD_PERCENT / 100) : null);
-  const pct = st.percent ?? (info && info.config && info.config.WORKLOAD_PERCENT);
+  const cap = info && info.capacity, cfg = (info && info.config) || {};
+  const fixed = +cfg.WORKLOAD_NOPM > 0;
+  targetNopm = st.target_nopm ?? (fixed ? +cfg.WORKLOAD_NOPM : cap && cfg.WORKLOAD_PERCENT ? Math.round(cap.nopm * cfg.WORKLOAD_PERCENT / 100) : null);
+  const mode = st.target_mode ?? (fixed ? "nopm" : "percent");
+  const pct = st.target_nopm != null ? st.percent : fixed ? (cap ? +(100 * targetNopm / cap.nopm).toFixed(1) : null) : cfg.WORKLOAD_PERCENT;
   $("t-target").innerHTML = targetNopm != null ? fmtInt(targetNopm) + "<small>NOPM</small>" : "–";
-  $("t-target-f").textContent = pct != null ? `${pct}% of capacity · ${st.vu ?? "–"} virtual users` : "workload not installed";
+  $("t-target-f").textContent = targetNopm != null ? `${loadLevel(mode, pct)} · ${st.vu ?? "–"} virtual users` : "workload not installed";
 
   const last = status.last_ok_result;
   if (last) {
@@ -531,7 +545,7 @@ function renderBenchInfo() {
   $("i-bench").innerHTML = kv([
     ["Workload", `${esc(svc.workload || "–")}${st.pace_ms && st.pace_ms !== 0 ? ` · paced at ${(+st.pace_ms).toFixed(1)} ms/transaction per VU` : ""}`],
     ["Iteration", `${c.WORKLOAD_RAMPUP} min warm-up + ${c.WORKLOAD_DURATION} min run${+c.WORKLOAD_SLEEP ? ` + ${c.WORKLOAD_SLEEP}s pause` : ""}`],
-    ["Load level", `${c.WORKLOAD_PERCENT}% of capacity`],
+    ["Load level", +c.WORKLOAD_NOPM > 0 ? `fixed target of ${fmtInt(+c.WORKLOAD_NOPM)} NOPM` : `${c.WORKLOAD_PERCENT}% of capacity`],
     ["Capacity test", `${c.CAPACITY_VU} VU · ${c.CAPACITY_RAMPUP} min warm-up + ${c.CAPACITY_DURATION} min`],
     ["Schema", sch ? `${fmtInt(sch.warehouses)} warehouses · built ${fmtWhen(parseTs(sch.created_at))} in ${fmtDur(sch.build_seconds)}` : "not generated"],
     ["Purge", svc.purge_timer === "active" ? `every ${c.PURGE_INTERVAL_MIN} min · keep ${c.PURGE_RETENTION_HOURS}h${svc.purge_next ? ` · next in ${fmtDur(svc.purge_next - status.now)}` : ""}` : "not installed"],

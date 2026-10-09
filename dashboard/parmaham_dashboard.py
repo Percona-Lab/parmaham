@@ -950,7 +950,7 @@ class Handler(BaseHTTPRequestHandler):
 def api_info():
     datadir = SAMPLER.db_info.get("datadir") or "/"
     conf_keys = ["WAREHOUSES", "CAPACITY_VU", "CAPACITY_RAMPUP", "CAPACITY_DURATION",
-                 "WORKLOAD_PERCENT", "WORKLOAD_VU", "WORKLOAD_RAMPUP", "WORKLOAD_DURATION",
+                 "WORKLOAD_PERCENT", "WORKLOAD_NOPM", "WORKLOAD_VU", "WORKLOAD_RAMPUP", "WORKLOAD_DURATION",
                  "WORKLOAD_SLEEP", "PURGE_RETENTION_HOURS", "PURGE_INTERVAL_MIN", "HAMMERDB_VERSION"]
     conf = load_config()
     return {
