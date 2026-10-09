@@ -315,10 +315,15 @@ Database metrics per database:
 | Redo log | `Innodb_os_log_written`, LSN − checkpoint LSN | `Innodb_os_log_written`, `Innodb_checkpoint_age` | WAL written (LSN advance), WAL since the last checkpoint's redo point |
 | Undo history & lock waits | history list length, row lock waits/s | same | dead tuples not yet vacuumed (`n_dead_tup`), sessions waiting on a lock |
 
-OrioleDB and pgrust use the PostgreSQL mapping. On OrioleDB, the shared
-buffer and dead tuple charts cover only what is still stored the PostgreSQL
-way (system catalogs): OrioleDB tables have their own buffer pool and keep
-old row versions in undo logs. Each `dashboard_collector.py` documents its mapping. Chart titles and series
+pgrust uses the PostgreSQL mapping. OrioleDB tables keep their pages in
+OrioleDB's own buffer pool, old row versions in undo logs, and do their own
+I/O, so on OrioleDB the dashboard uses OrioleDB's figures where PostgreSQL's
+statistics do not see its tables: the buffer pool chart shows OrioleDB's main
+pool (`orioledb_page_stats()`, no hit ratio is reported), the MVCC backlog is
+the undo log size (`orioledb_undo_size()`; it grows between checkpoints and
+shrinks at each one), and rows read are index lookups plus rows read by
+sequential scans (OrioleDB counts index scans but not the rows they fetch).
+Data file I/O is not counted for OrioleDB tables and is left empty. Each `dashboard_collector.py` documents its mapping. Chart titles and series
 names come from the collector's `LABELS`, so each database's metrics appear
 under its own names on both the dashboard and the compare page.
 

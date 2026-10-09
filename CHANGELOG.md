@@ -1,5 +1,18 @@
 # Changelog
 
+## OrioleDB metrics (2026-10-09)
+
+* OrioleDB dashboard figures where PostgreSQL's statistics do not see
+  OrioleDB tables: the buffer pool chart shows OrioleDB's main pool
+  (`orioledb_page_stats()`) instead of the catalog-only shared buffers; the
+  MVCC backlog is the undo log size (`orioledb_undo_size()`) instead of
+  `n_dead_tup`, which only grows because no vacuum runs on OrioleDB tables;
+  rows read are index lookups plus sequentially scanned rows (OrioleDB counts
+  index scans but not `idx_tup_fetch`). The buffer hit ratio and data file
+  I/O, which OrioleDB does not report, are left empty instead of showing 100%
+  and zero.
+* The dashboard sampler accepts metrics a collector does not report (None).
+
 ## Fixed NOPM target and CPU steal (2026-10-09)
 
 * `install-workload.sh --nopm N` runs the permanent workload at a fixed number

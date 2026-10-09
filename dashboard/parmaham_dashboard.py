@@ -518,17 +518,22 @@ class Sampler(threading.Thread):
                 if cur_os and prev_os:
                     point.update(os_derived(prev_os, cur_os, dt))
                 if cur_db and prev_db:
+                    # a collector returns None for a metric its database does not
+                    # report (OrioleDB's buffer hit counters, for example): the
+                    # chart then shows no line instead of a misleading zero
                     for key in self.db_module.RATES:
-                        point[key] = max(0.0, (cur_db[key] - prev_db[key]) / dt)
+                        c, p = cur_db.get(key), prev_db.get(key)
+                        point[key] = None if c is None or p is None else max(0.0, (c - p) / dt)
                     for key in self.db_module.GAUGES:
-                        point[key] = cur_db[key]
+                        point[key] = cur_db.get(key)
                     point["db_checkpoint_age_bytes"] = cur_db.get("db_checkpoint_age_bytes", 0)
                     point["nopm"] = point.pop("db_new_orders") * 60
                     point["tpm"] = point["db_tps"] * 60
-                    req = point["db_bp_read_requests"]
-                    point["db_bp_hit_pct"] = 100.0 * (1 - point["db_bp_disk_reads"] / req) if req else 100.0
-                    total = point["db_bp_pages_total"]
-                    point["db_bp_dirty_pct"] = 100.0 * point["db_bp_pages_dirty"] / total if total else 0
+                    req, misses = point.get("db_bp_read_requests"), point.get("db_bp_disk_reads")
+                    point["db_bp_hit_pct"] = None if req is None or misses is None else \
+                        100.0 * (1 - misses / req) if req else 100.0
+                    total, dirty = point.get("db_bp_pages_total"), point.get("db_bp_pages_dirty")
+                    point["db_bp_dirty_pct"] = 100.0 * dirty / total if total and dirty is not None else None
                     point["db_up"] = 1
                 elif cur_db is None:
                     point["db_up"] = 0
