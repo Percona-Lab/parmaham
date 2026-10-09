@@ -106,7 +106,8 @@ ExecReload=/bin/kill -HUP \$MAINPID
 KillMode=mixed
 KillSignal=SIGINT
 TimeoutSec=infinity
-OOMScoreAdjust=-900
+# pgrust is one process with its own memory watchdog: no OOM protection, so
+# under memory pressure the kernel does not kill the rest of the system first
 
 [Install]
 WantedBy=multi-user.target

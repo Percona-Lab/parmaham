@@ -29,6 +29,14 @@
 * Writing the tuning file into the data directory no longer resets the data
   directory's mode to 0755 (PostgreSQL then refuses to start); this affected
   variants that keep `zz-parmaham.conf` in the data directory.
+* OrioleDB: adding the `history` key with one `ALTER TABLE` grew a backend
+  past the memory of a 4 GB node (OOM-killed at 2.7 GB for 6 million rows);
+  the rows are now copied into a keyed table 10 warehouses per transaction
+  (76 s for 200 warehouses).
+* OrioleDB's service protects only the postmaster from the OOM killer, as
+  PostgreSQL's packaging does (`PG_OOM_ADJUST_FILE`); with every backend
+  protected, the kernel killed sshd, logind and the monitoring agents instead
+  of the runaway backend. pgrust (one process) gets no protection.
 
 ## Multi-database support and compare page (2026-10-08, branch `multi-database`)
 

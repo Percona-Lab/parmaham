@@ -114,7 +114,10 @@ ExecReload=/bin/kill -HUP \$MAINPID
 KillMode=mixed
 KillSignal=SIGINT
 TimeoutSec=infinity
+# as PostgreSQL's own packaging: protect the postmaster from the OOM killer,
+# but let backends be killed (they reset their score to 0)
 OOMScoreAdjust=-900
+Environment=PG_OOM_ADJUST_FILE=/proc/self/oom_score_adj PG_OOM_ADJUST_VALUE=0
 
 [Install]
 WantedBy=multi-user.target
