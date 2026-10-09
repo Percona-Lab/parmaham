@@ -83,12 +83,18 @@ SETTINGS = [
 UNIT_BYTES = {"B": 1, "kB": 1024, "8kB": 8192, "MB": 1048576, "GB": 1073741824}
 
 
-def find_psql():
+PSQL_GLOBS = [("/usr/lib/postgresql/*/bin/psql", r"/postgresql/(\d+)/"), ("/usr/pgsql-*/bin/psql", r"/pgsql-(\d+)/")]
+
+
+def find_psql(globs=PSQL_GLOBS):
     """The newest psql binary: Debian's /usr/bin/psql is a Perl wrapper that
     would otherwise start on every sample."""
-    found = glob.glob("/usr/lib/postgresql/*/bin/psql") + glob.glob("/usr/pgsql-*/bin/psql")
-    found.sort(key=lambda p: int(re.search(r"(\d+)", p.split("postgresql/")[-1].split("pgsql-")[-1]).group(1)))
-    return found[-1] if found else "psql"
+    found = []
+    for pattern, version in globs:
+        for path in glob.glob(pattern):
+            m = re.search(version, path)
+            found.append((int(m.group(1)) if m else 0, path))
+    return max(found)[1] if found else "psql"
 
 
 def read_cnf(path):
@@ -103,11 +109,12 @@ def read_cnf(path):
 
 class Collector:
     name = "PostgreSQL"
+    psql_globs = PSQL_GLOBS
 
     def __init__(self, cnf_path):
         self.cnf_path = cnf_path
         self.features = None   # detected by info(): version, extensions
-        self.client = find_psql()
+        self.client = find_psql(self.psql_globs)
 
     def _query(self, sql, db=BENCH_DB, timeout=20):
         cnf = read_cnf(self.cnf_path)

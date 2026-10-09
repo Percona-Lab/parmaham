@@ -1,5 +1,35 @@
 # Changelog
 
+## OrioleDB and pgrust (2026-10-09)
+
+### New
+
+* **OrioleDB** (`orioledb/`): builds PostgreSQL with OrioleDB's patch set and
+  the `orioledb` extension from source (default beta19 on PostgreSQL 18) and
+  makes it the default table access method, so the whole HammerDB schema uses
+  OrioleDB. Its buffer pool gets the memory PostgreSQL gives `shared_buffers`.
+* **pgrust** (`pgrust/`): runs the pgrust release binary (default 0.3), a Rust
+  rewrite of PostgreSQL 18, on a cluster created with PGDG PostgreSQL 18's
+  `initdb`. pgrust bundles ports of `pg_stat_statements` and `pg_buffercache`,
+  so the dashboard shows the same metrics as for PostgreSQL.
+* Both reuse the PostgreSQL plug-in: HammerDB's PostgreSQL driver, the
+  PL/pgSQL purge and the PostgreSQL dashboard collector.
+
+### Changed
+
+* `postgresql/lib/db.sh` provides the tuning file, admin password and accounts
+  as functions (`pg_write_tuning`, `pg_set_admin_password`, `pg_create_accounts`)
+  that variants adjust with `PG_PRELOAD` and `pg_extra_conf`. Credential files
+  are named after the database directory (`/etc/parmaham/<db>-*.cnf`).
+* The PostgreSQL dashboard collector takes the `psql` search path from the
+  variant (OrioleDB's is in `/opt/orioledb`).
+
+### Fixed
+
+* Writing the tuning file into the data directory no longer resets the data
+  directory's mode to 0755 (PostgreSQL then refuses to start); this affected
+  variants that keep `zz-parmaham.conf` in the data directory.
+
 ## Multi-database support and compare page (2026-10-08, branch `multi-database`)
 
 ### New

@@ -12,7 +12,7 @@ PMH_USER=${PMH_USER:-parmaham}
 PMH_SRC=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 # Supported databases: one directory each, with lib/db.sh (shell plug-in),
 # lib/hdb-db.tcl (HammerDB settings) and dashboard_collector.py
-PMH_DATABASES="mysql mariadb postgresql"
+PMH_DATABASES="mysql mariadb postgresql orioledb pgrust"
 
 log()  { printf '%s [parmaham] %s\n' "$(date '+%F %T')" "$*" >&2; }
 warn() { log "WARNING: $*"; }

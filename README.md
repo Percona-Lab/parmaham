@@ -16,6 +16,8 @@ Supported databases, one per node, each in its own directory:
 | `mysql/` | **Percona Server for MySQL** (default) or **Oracle MySQL Community Server** (`--flavor community`) | Percona Server 9.7 LTS; MySQL 9.7 LTS or the newest Innovation release (`--repo mysql-innovation`, 26.7) |
 | `mariadb/` | **MariaDB Server** (MariaDB Foundation repository) | 13.0 (`--version 12.3` or `11.8` for an LTS release) |
 | `postgresql/` | **PostgreSQL** (PostgreSQL community repository, PGDG) | 18 |
+| `orioledb/` | **OrioleDB** (PostgreSQL with OrioleDB's patches and storage engine, built from source) | beta19 on PostgreSQL 18 |
+| `pgrust/` | **pgrust** (PostgreSQL rewritten in Rust; experimental, not production ready) | 0.3 |
 
 ```
 parmaham/
@@ -31,7 +33,8 @@ parmaham/
 ├── dashboard/                     public web dashboard (Python standard library only);
 │                                  static/chart.js and style.css are shared with compare/
 ├── compare/                       side-by-side comparison of two Parma Ham hosts
-├── mysql/  mariadb/  postgresql/  one directory per database:
+├── mysql/  mariadb/  postgresql/  one directory per database
+├── orioledb/  pgrust/             (orioledb/ and pgrust/ build on postgresql/lib):
 │   ├── database-install.sh        install + tune the database server for this node
 │   ├── database-generate.sh ...   links to the common scripts
 │   ├── dashboard_collector.py     database metrics for the dashboard
@@ -47,7 +50,7 @@ as root. Pick the database directory, here `mysql/`:
 git clone https://github.com/Percona-Lab/parmaham.git
 cd parmaham
 
-DB=mysql                                   # or mariadb, postgresql
+DB=mysql                                   # or mariadb, postgresql, orioledb, pgrust
 $DB/database-install.sh                    # install the server, tuned to this node
 $DB/database-generate.sh                   # 200 warehouses
 $DB/compute-capacity.sh --background       # ~46 minutes: journalctl -fu parmaham-capacity
@@ -136,6 +139,40 @@ Re-running the script keeps the installation and only regenerates the tuning.
 * The same OS settings as MySQL, and two roles: `hammerdb` (owns the `tpcc`
   database) and `parmaham_mon` (member of `pg_monitor`, read-only).
 
+### `orioledb/database-install.sh [--version beta19] [--pg-major 18]`
+
+* Builds PostgreSQL with OrioleDB's patches (the patch set the release pins in
+  `.pgtags`, `patches18_3` for beta19) and the `orioledb` extension from source
+  into `/opt/orioledb/<major>`, without debug options. About 5 minutes on 2 vCPUs;
+  the log is `/var/log/parmaham/orioledb-build.log`. Debian and Ubuntu only.
+* Creates the cluster in `/var/lib/orioledb/<major>/data` with the C locale
+  (OrioleDB tables need ICU, C, POSIX or builtin collations) and runs it as
+  `orioledb.service`.
+* Every table HammerDB creates is an OrioleDB table:
+  `default_table_access_method = 'orioledb'`, with the extension created in
+  `template1`.
+* The same tuning as PostgreSQL, except that the memory PostgreSQL would give
+  `shared_buffers` goes to OrioleDB's own buffer pool (`orioledb.main_buffers`,
+  25% of RAM); `shared_buffers` keeps 256 MB for the system catalogs.
+* HammerDB's PostgreSQL driver loads the build's `libpq`.
+
+### `pgrust/database-install.sh [--version 0.3]`
+
+* [pgrust](https://github.com/malisper/pgrust) is a rewrite of PostgreSQL 18
+  in Rust: one process with threads, wire and SQL compatible, with its own
+  ports of contrib modules such as `pg_stat_statements` and `pg_buffercache`.
+  Its authors say it is not ready for production, and its JIT and published
+  performance numbers target AWS Graviton4, so x86 results are not comparable
+  with theirs.
+* Downloads the release binary from pgrust.com (checksum verified) into
+  `/opt/pgrust`. pgrust has no `initdb` or `psql` of its own: PostgreSQL 18's
+  client tools, `initdb` and share files come from PGDG, without a PostgreSQL
+  cluster.
+* Creates the cluster in `/var/lib/pgrust/data` and runs it as `pgrust.service`,
+  with the same tuning as PostgreSQL plus the settings pgrust's quick start asks
+  for (`io_method = sync`, a 64 MB stack).
+* Debian and Ubuntu only.
+
 ### `database-generate.sh [--warehouses 200] [--vu N] [--partition true] [--force]`
 
 * Downloads HammerDB 6.0 into `/opt/parmaham/hammerdb` and builds the schema
@@ -147,9 +184,10 @@ Re-running the script keeps the installation and only regenerates the tuning.
 * MySQL and MariaDB: builds `history` with HammerDB's invisible primary key
   option and widens it to `BIGINT`. A permanent run would otherwise exhaust
   `INT`, and the purge job needs the key.
-* PostgreSQL: builds with stored procedures (`pg_storedprocs`, HammerDB's
-  recommendation for PostgreSQL 11 and later) and adds a `BIGINT` identity
-  primary key to `history`, which HammerDB creates without a key.
+* PostgreSQL, OrioleDB and pgrust: build with stored procedures
+  (`pg_storedprocs`, HammerDB's recommendation for PostgreSQL 11 and later)
+  and add a `BIGINT` identity primary key to `history`, which HammerDB creates
+  without a key.
 
 ### `compute-capacity.sh [--vu 64] [--rampup 15] [--duration 30] [--background]`
 
@@ -203,8 +241,9 @@ older than the retention period. It avoids table scans:
 * Orders that have not been delivered yet are never deleted.
 * Purge history is stored in `tpcc.parmaham_purge_log` and shown on the dashboard.
 * MySQL and MariaDB use the same stored procedures (`mysql/lib/purge.sql`);
-  PostgreSQL uses a PL/pgSQL port (`postgresql/lib/purge.sql`) whose
-  procedures commit after every batch. Autovacuum reclaims the deleted rows.
+  PostgreSQL, OrioleDB and pgrust use a PL/pgSQL port (`postgresql/lib/purge.sql`)
+  whose procedures commit after every batch. Autovacuum reclaims the deleted
+  rows (OrioleDB tables reuse space through their undo log instead).
 
 Because watermarks start at installation, the first rows are deleted one
 retention period after the purge is installed.
@@ -266,7 +305,10 @@ Database metrics per database:
 | Redo log | `Innodb_os_log_written`, LSN − checkpoint LSN | `Innodb_os_log_written`, `Innodb_checkpoint_age` | WAL written (LSN advance), WAL since the last checkpoint's redo point |
 | Undo history & lock waits | history list length, row lock waits/s | same | dead tuples not yet vacuumed (`n_dead_tup`), sessions waiting on a lock |
 
-Each `dashboard_collector.py` documents its mapping. Chart titles and series
+OrioleDB and pgrust use the PostgreSQL mapping. On OrioleDB, the shared
+buffer and dead tuple charts cover only what is still stored the PostgreSQL
+way (system catalogs): OrioleDB tables have their own buffer pool and keep
+old row versions in undo logs. Each `dashboard_collector.py` documents its mapping. Chart titles and series
 names come from the collector's `LABELS`, so each database's metrics appear
 under its own names on both the dashboard and the compare page.
 
@@ -435,7 +477,12 @@ MariaDB, PostgreSQL and Percona Server nodes: host selection, swap, all time
 ranges, an unreachable host, and light, dark and phone layouts without
 JavaScript errors.
 
-Not tested yet: MariaDB and PostgreSQL on RHEL/Rocky, Debian 12, aarch64,
+OrioleDB beta19 (PostgreSQL 18.6) and pgrust 0.3 were set up on Ubuntu
+26.04 (2 vCPU, 4 GB) for a long-term comparison next to Percona Server and
+PostgreSQL; see CHANGELOG.md for results.
+
+Not tested yet: MariaDB and PostgreSQL on RHEL/Rocky (OrioleDB and pgrust
+install on Debian and Ubuntu only), Debian 12, aarch64,
 and multi-day runs with MariaDB and PostgreSQL.
 
 ## License

@@ -38,6 +38,18 @@ PG_SHARED_BUFFERS_PCT=25
 # the WAL flush at commit
 PG_SYNCHRONOUS_COMMIT=on
 
+# --- OrioleDB (orioledb/) ----------------------------------------------------
+# OrioleDB release (git tag of github.com/orioledb/orioledb) and the
+# PostgreSQL major version whose OrioleDB patch set is built with it
+ORIOLEDB_VERSION=beta19
+ORIOLEDB_PG_MAJOR=18
+# The PostgreSQL settings above (PG_SHARED_BUFFERS_PCT, PG_SYNCHRONOUS_COMMIT)
+# apply; the shared_buffers share goes to OrioleDB's buffer pool.
+
+# --- pgrust (pgrust/) ----------------------------------------------------------
+# pgrust release (binary from pgrust.com); it uses PG_VERSION's client tools
+PGRUST_VERSION=0.3
+
 # --- Data generation --------------------------------------------------------
 WAREHOUSES=200
 # Virtual users used to load data (0 = number of CPUs)
