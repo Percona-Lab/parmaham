@@ -355,8 +355,12 @@ compare/install-compare.sh --add http://192.0.2.11/ --name "PostgreSQL 18"   # h
 
 * Hosts are listed in `/etc/parmaham/compare-hosts` (`URL [name]` per line);
   `--add`, `--remove` and `--list` edit it, and changes apply without a restart.
-* The page picks any two of them (A and B, with a swap button) and a time
-  range; the selection is kept in the URL, so a comparison can be shared as a link.
+* The page always compares exactly two of them. With more nodes configured,
+  the node picker lists every node on both sides, A and B, as cards with the
+  node's database, workload state, target and last result; click one card on
+  each side. A node shown on one side cannot be picked on the other (use the
+  swap button instead). The selection and time range are kept in the URL, so a
+  comparison can be shared as a link.
 * **Overview:** database and version, hardware, schema, capacity (also per
   vCPU), load level (a share of capacity or a fixed target), target, CPU steal,
   live throughput, last run and target achieved, with a "B vs A" difference column.

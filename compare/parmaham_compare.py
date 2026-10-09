@@ -14,6 +14,7 @@ paths are proxied (the page is public and must not become an open proxy).
 
 API:
     /api/hosts                      configured hosts with name, database, node
+                                    and a brief workload status (for the picker)
     /api/h/<n>/<path>?<query>       GET <host n>/api/<path>?<query>, where path
                                     is info, status, metrics, results or lastrun
 """
@@ -134,6 +135,30 @@ def host_summary(url):
     return out
 
 
+HOST_STATUS = {}  # url -> (fetched_at, brief status)
+
+
+def host_status(url):
+    """Workload state, target and live throughput of a host, refreshed every
+    15 s, for the node picker"""
+    hit = HOST_STATUS.get(url)
+    if hit and time.time() - hit[0] < 15:
+        return hit[1]
+    out = None
+    status, body = fetch(url + "/api/status")
+    if status == 200:
+        try:
+            d = json.loads(body)
+            st, last = d.get("status") or {}, d.get("last_ok_result") or {}
+            out = {"state": st.get("state"), "iteration": st.get("iteration"),
+                   "target_nopm": st.get("target_nopm"), "target_mode": st.get("target_mode"),
+                   "percent": st.get("percent"), "last_nopm": last.get("nopm")}
+        except ValueError:
+            pass
+    HOST_STATUS[url] = (time.time(), out)
+    return out
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "ParmaHamCompare"
 
@@ -165,7 +190,8 @@ class Handler(BaseHTTPRequestHandler):
                 hosts = []
                 for i, (u, name) in enumerate(read_hosts()):
                     s = host_summary(u)
-                    hosts.append(dict(s, id=i, url=u, name=name or s.get("hostname") or urlparse(u).hostname))
+                    hosts.append(dict(s, id=i, url=u, name=name or s.get("hostname") or urlparse(u).hostname,
+                                      status=host_status(u) if s.get("ok") else None))
                 self.send_json({"hosts": hosts, "now": time.time()})
             elif url.path.startswith("/api/h/"):
                 m = re.match(r"^/api/h/(\d+)/([a-z]+)$", url.path)

@@ -9,6 +9,11 @@
   capacity when there is one; the dashboard and compare page show either.
 * `install-workload.sh` checks its options before saving them, so a rejected
   change no longer reaches the running workload's configuration.
+* Compare page: a node picker replaces the two drop-downs. It lists every
+  configured node on side A and side B as a card (database, workload state,
+  target, last result, refreshed every 30 s); the page always compares exactly
+  two different nodes, and the node on one side is disabled on the other.
+  `/api/hosts` includes each node's brief workload status.
 * Dashboard and compare page: a CPU steal chart (share of CPU time the
   hypervisor gave to other guests, with the vCPUs that amounts to); the
   compare overview shows the last minute's steal for both hosts.

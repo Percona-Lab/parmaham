@@ -12,10 +12,24 @@
 :root { --ca: #2f6fde; --cb: #e8833a; }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --ca: #5b8ef5; --cb: #d9732a; } }
 :root[data-theme="dark"] { --ca: #5b8ef5; --cb: #d9732a; }
-.pick { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.pick label { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); }
-.pick select { font: inherit; font-size: 13px; color: var(--text); background: var(--panel); border: 1px solid var(--border);
-  border-radius: 8px; padding: 5px 8px; max-width: 260px; }
+/* node picker: every configured node on each side; exactly two distinct nodes are compared */
+.picker { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: 12px; align-items: start; margin: 4px 0 18px; }
+.side { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; box-shadow: var(--shadow); min-width: 0; }
+.side-h { display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 650; letter-spacing: .6px; text-transform: uppercase; color: var(--muted); margin-bottom: 8px; }
+.nodes { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 8px; }
+.node { font: inherit; text-align: left; color: var(--text); background: var(--panel-2); border: 1px solid var(--border); border-radius: 10px;
+  padding: 8px 10px; cursor: pointer; min-width: 0; }
+.node:hover:not(:disabled) { border-color: var(--faint); }
+.node:focus-visible { outline: 2px solid var(--info); outline-offset: 2px; }
+.node .n { font-weight: 650; font-size: 13px; overflow-wrap: anywhere; }
+.node .e, .node .s { font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+.node .s { margin-top: 2px; }
+.side.a .node[aria-pressed="true"] { border: 2px solid var(--ca); padding: 7px 9px; background: color-mix(in srgb, var(--ca) 10%, var(--panel)); }
+.side.b .node[aria-pressed="true"] { border: 2px solid var(--cb); padding: 7px 9px; background: color-mix(in srgb, var(--cb) 10%, var(--panel)); }
+.node:disabled { cursor: default; opacity: .45; }
+.node .tag { font-size: 11px; color: var(--muted); }
+.picker .iconbtn { margin-top: 34px; }
+@media (max-width: 700px) { .picker { grid-template-columns: minmax(0, 1fr); } .picker .iconbtn { margin: 0 auto; } }
 .sw { display: inline-block; width: 10px; height: 10px; border-radius: 3px; flex: none; }
 .sw.a { background: var(--ca); } .sw.b { background: var(--cb); }
 table.cmp { width: 100%; border-collapse: collapse; font-size: 13px; }
@@ -44,11 +58,6 @@ table.cmp td.d b { font-weight: 600; }
         <div class="sub">Two HammerDB workloads side by side</div>
       </div>
     </div>
-    <div class="pick">
-      <label><span class="sw a"></span>A <select id="sel-a" aria-label="Host A"></select></label>
-      <button class="iconbtn" id="swap" title="Swap A and B" aria-label="Swap A and B">⇄</button>
-      <label><span class="sw b"></span>B <select id="sel-b" aria-label="Host B"></select></label>
-    </div>
     <div class="tools">
       <div class="seg" id="range">
         <button data-min="5">5m</button><button data-min="15" class="on">15m</button><button data-min="60">1h</button><button data-min="180">3h</button><button data-min="1440">24h</button>
@@ -58,6 +67,12 @@ table.cmp td.d b { font-weight: 600; }
   </header>
 
   <div class="banner" id="banner"></div>
+
+  <section class="picker" aria-label="Nodes to compare">
+    <div class="side a"><div class="side-h"><span class="sw a"></span> A <span id="name-a"></span></div><div class="nodes" id="nodes-a" role="group" aria-label="Node shown as A"></div></div>
+    <button class="iconbtn" id="swap-ab" title="Swap A and B" aria-label="Swap A and B">⇄</button>
+    <div class="side b"><div class="side-h"><span class="sw b"></span> B <span id="name-b"></span></div><div class="nodes" id="nodes-b" role="group" aria-label="Node shown as B"></div></div>
+  </section>
 
   <h2>Overview <span class="aside" id="ov-aside"></span></h2>
   <div class="panel"><div class="scroll"><table class="cmp" id="overview"></table></div></div>
@@ -362,17 +377,45 @@ function readSelection() {
   for (const s of SLOTS) if (q.get(s) !== null && q.get(s) !== "") pick[s] = +q.get(s);
   if (q.get("r")) rangeMin = +q.get("r");
 }
+const other = (slot) => (slot === "a" ? "b" : "a");
 async function select(slot, id) {
-  pick[slot] = id; feeds[slot].reset(id); saveSelection();
+  if (pick[slot] === id) return;
+  // the page compares two different nodes: picking the other side's node swaps the sides
+  if (pick[other(slot)] === id) { swapSides(); return; }
+  pick[slot] = id; feeds[slot].reset(id); saveSelection(); fillPicker();
   await Promise.all(["info", "status", "results", "metrics", "rollup"].map((w) => feeds[slot].poll(w)));
   renderAll();
 }
-function fillSelects() {
+function swapSides() {
+  [feeds.a, feeds.b] = [feeds.b, feeds.a]; feeds.a.slot = "a"; feeds.b.slot = "b";
+  [pick.a, pick.b] = [pick.b, pick.a]; fillPicker(); saveSelection(); renderAll();
+}
+// one card per node: name, database, and what its workload is doing
+function nodeLine(h) {
+  if (!h.ok) return "not reachable";
+  const st = h.status;
+  if (!st || !st.state) return "–";
+  const parts = [st.state + (st.iteration ? ` · iteration ${st.iteration}` : "")];
+  if (st.target_nopm) parts.push(`target ${fmtInt(st.target_nopm)} NOPM` + (st.target_mode === "nopm" ? " (fixed)" : st.percent != null ? ` (${+st.percent}%)` : ""));
+  if (st.last_nopm) parts.push(`last run ${fmtInt(st.last_nopm)}`);
+  return parts.join(" · ");
+}
+function fillPicker() {
   for (const s of SLOTS) {
-    const sel = $("sel-" + s);
-    sel.innerHTML = hosts.map((h) => `<option value="${h.id}">${esc(h.name)}${h.engine ? ` — ${esc(h.engine)} ${esc(h.version || "")}` : h.ok ? "" : " (not reachable)"}</option>`).join("");
-    sel.value = pick[s] ?? "";
+    const taken = pick[other(s)];
+    $("nodes-" + s).innerHTML = hosts.map((h) => {
+      const on = h.id === pick[s], off = h.id === taken;
+      return `<button class="node" data-id="${h.id}" aria-pressed="${on}"${off ? ` disabled title="shown as ${other(s).toUpperCase()}"` : ""}>
+        <div class="n">${esc(h.name)}${off ? ` <span class="tag">· ${other(s).toUpperCase()}</span>` : ""}</div>
+        <div class="e">${h.engine ? esc(h.engine + " " + (h.version || "")) : ""}</div>
+        <div class="s">${esc(nodeLine(h))}</div></button>`;
+    }).join("") || `<div class="note">no nodes configured</div>`;
+    const cur = hosts.find((h) => h.id === pick[s]);
+    $("name-" + s).textContent = cur ? "· " + cur.name : "";
+    for (const b of $("nodes-" + s).querySelectorAll("button.node")) b.onclick = () => select(s, +b.dataset.id);
   }
+  const [ha, hb] = SLOTS.map((s) => hosts.find((h) => h.id === pick[s]));
+  document.title = ha && hb ? `${ha.name} vs ${hb.name} · Parma Ham Compare` : "Parma Ham Compare";
 }
 async function loadHosts() {
   try {
@@ -381,15 +424,17 @@ async function loadHosts() {
   if (!hosts.length) {
     banner("No hosts configured: add Parma Ham dashboards with compare/install-compare.sh --add URL");
   }
-  // default: the first two hosts
-  for (const [i, s] of SLOTS.entries()) if (pick[s] == null || !hosts.some((h) => h.id === pick[s])) pick[s] = hosts[i] ? hosts[i].id : (hosts[0] ? hosts[0].id : null);
-  fillSelects();
+  // keep valid, distinct picks; default to the first two nodes
+  for (const s of SLOTS) if (!hosts.some((h) => h.id === pick[s])) pick[s] = null;
+  if (pick.a != null && pick.a === pick.b) pick.b = null;
+  for (const s of SLOTS) if (pick[s] == null) {
+    const free = hosts.find((h) => h.id !== pick[other(s)]);
+    pick[s] = free ? free.id : null;
+  }
+  if (hosts.length < 2) banner("The compare page needs two nodes: add another with compare/install-compare.sh --add URL");
+  fillPicker();
 }
-for (const s of SLOTS) $("sel-" + s).onchange = (e) => select(s, +e.target.value);
-$("swap").onclick = () => {
-  [feeds.a, feeds.b] = [feeds.b, feeds.a]; feeds.a.slot = "a"; feeds.b.slot = "b";
-  [pick.a, pick.b] = [pick.b, pick.a]; fillSelects(); saveSelection(); renderAll();
-};
+$("swap-ab").onclick = swapSides;
 readSelection();
 for (const b of document.querySelectorAll("#range button")) {
   b.classList.toggle("on", +b.dataset.min === rangeMin);
@@ -419,7 +464,8 @@ const every = (what, ms, after) => setInterval(async () => { await Promise.all(S
   every("results", 60000, renderCharts);
   every("rollup", 60000, renderCharts);
   every("info", 300000, renderAll);
-  setInterval(async () => { await loadHosts(); }, 300000);
+  // node cards: workload state and throughput of every node
+  setInterval(async () => { await loadHosts(); }, 30000);
 })();
 </script>
 </body>
