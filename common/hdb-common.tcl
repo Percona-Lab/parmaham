@@ -5,7 +5,8 @@
 # database, sets the connection and credentials, and sets P to the prefix of
 # HammerDB's settings for that database (mysql_, maria_, pg_), which the
 # generic build and run scripts use: diset tpcc ${P}_rampup ...
-# It may define pmh_build_settings with extra settings for the schema build.
+# It may define pmh_build_settings with extra settings for the schema build,
+# and pmh_patch_driver to change the driver script (_ED(package)) for a run.
 
 proc pmh_env { name {default ""} } {
     if { [info exists ::env($name)] && $::env($name) ne "" } { return $::env($name) }

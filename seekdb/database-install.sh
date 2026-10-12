@@ -153,6 +153,11 @@ fi
 db_wait
 # UTC timestamps (seekdb defaults to +08:00), as on the other databases
 db_admin "SET GLOBAL time_zone = '+00:00'"
+# seekdb ends any statement after 10 s by default (ob_query_timeout); MySQL
+# has no such limit, and HammerDB's statistics step and the purge's CALL take
+# longer. Global variables apply to new sessions only, so this comes before
+# anything else connects.
+db_admin "SET GLOBAL ob_query_timeout = 3600000000"
 
 # ---------------------------------------------------------------------------
 # 4. Accounts for HammerDB and the dashboard

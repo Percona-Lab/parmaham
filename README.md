@@ -194,7 +194,11 @@ Re-running the script keeps the installation and only regenerates the tuning.
   `ob_query_timeout` from 10 seconds to 1 hour, which long statements such as
   the purge's `CALL` would otherwise exceed. seekdb's default isolation level,
   READ COMMITTED, is kept.
-* HammerDB's MySQL driver needs two workarounds: the benchmark database is
+* HammerDB's MySQL driver counts transactions with `SHOW GLOBAL STATUS`
+  (`Com_commit` and `Com_rollback`), which seekdb lacks; for seekdb Parma Ham
+  changes that one query in the driver script to count stored procedure calls
+  in seekdb's plan cache (one per HammerDB transaction), so HammerDB's TPM is
+  procedure calls per minute. The schema build needs two more workarounds: the benchmark database is
   created empty as `utf8mb4` before the build (HammerDB would create it as
   `latin1`, which seekdb does not support), and the history key is added
   after the build by copying `history` into a keyed table, 10 warehouses per

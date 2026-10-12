@@ -9,7 +9,14 @@
   works with two workarounds: a pre-created `utf8mb4` database (seekdb has no
   `latin1`) and a history key added by copying the table. A seekdb collector
   reads seekdb's own views (plan cache, `V$DML_STATS`, redo log, memstore).
-* `database-generate.sh` runs an optional `db_before_build` plug-in hook.
+* HammerDB's MySQL driver counts transactions with `SHOW GLOBAL STATUS`
+  (`Com_commit`, `Com_rollback`), which seekdb does not provide (the run would
+  end without a result); for seekdb the driver asks the plan cache for stored
+  procedure calls instead. seekdb's 10-second statement timeout
+  (`ob_query_timeout`) is raised before anything connects: HammerDB's
+  statistics step takes minutes.
+* `database-generate.sh` runs an optional `db_before_build` plug-in hook, and
+  the HammerDB run script an optional `pmh_patch_driver` from `hdb-db.tcl`.
 * The MySQL-family helpers use `--defaults-file`, so commands run as root no
   longer pick up root's credentials from `~/.my.cnf` instead of the
   benchmark account's.

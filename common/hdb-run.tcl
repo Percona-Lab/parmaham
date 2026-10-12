@@ -26,6 +26,9 @@ diset tpcc ${P}_total_iterations 10000000000
 
 loadscript
 
+# database specific changes to the driver script (<db>/lib/hdb-db.tcl)
+if { [llength [info procs pmh_patch_driver]] } { pmh_patch_driver }
+
 if { $pace_ms > 0 } {
     set script $_ED(package)
     # The driver scripts of MySQL, MariaDB and PostgreSQL share the loop below.

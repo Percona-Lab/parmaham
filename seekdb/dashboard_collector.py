@@ -10,10 +10,12 @@ None and the dashboard draws no line:
   --------------------  --------------------------  -----------------------------------------------
   queries/s             Questions                   plan cache accesses (__all_virtual_plan_cache_stat):
                                                     every statement, including those inside procedures
-  transactions/s        Com_commit + Com_rollback   executions of CALL statements (each HammerDB
-                                                    transaction is one procedure call)
-  rows read             Innodb_rows_read            rows processed by cached plans
-                                                    (V$OB_PLAN_CACHE_PLAN_STAT.ROWS_PROCESSED)
+  transactions/s        Com_commit + Com_rollback   procedure executions in the plan cache
+                                                    (V$OB_PLAN_CACHE_PLAN_STAT, OBJECT_TYPE
+                                                    PROCEDURE; each HammerDB transaction is one
+                                                    procedure call)
+  rows read             Innodb_rows_read            not reported (seekdb counts no rows processed
+                                                    or buffer gets for statements in procedures)
   rows ins/upd/del      Innodb_rows_*               V$DML_STATS
   redo written          Innodb_os_log_written       redo log end LSN (V$OB_LOG_STAT), bytes
   checkpoint age        current - checkpoint LSN    log disk in use (V$OB_SERVER_STAT)
@@ -56,7 +58,7 @@ LABELS = {
     "qps_tps": "Procedure calls/s",
     "qps_qps": "Statements/s (incl. in procedures)",
     "rows": "Row operations",
-    "rows_read": "Rows processed",
+    "rows_read": "Read (not reported)",
     "thr": "Sessions",
     "thr_running": "Active",
     "bp": "Memstore (write buffer)",
@@ -75,8 +77,7 @@ LABELS = {
 SAMPLE_SQL = f"""
 SELECT 'stmts', COALESCE(SUM(access_count), 0) FROM oceanbase.__all_virtual_plan_cache_stat;
 SELECT 'calls', COALESCE(SUM(executions), 0) FROM oceanbase.V$OB_PLAN_CACHE_PLAN_STAT
- WHERE UPPER(LEFT(LTRIM(query_sql), 5)) = 'CALL ';
-SELECT 'rows_processed', COALESCE(SUM(rows_processed), 0) FROM oceanbase.V$OB_PLAN_CACHE_PLAN_STAT;
+ WHERE object_type = 'PROCEDURE';
 SELECT 'ins', COALESCE(SUM(ins), 0) FROM oceanbase.V$DML_STATS;
 SELECT 'upd', COALESCE(SUM(upd), 0) FROM oceanbase.V$DML_STATS;
 SELECT 'del', COALESCE(SUM(del), 0) FROM oceanbase.V$DML_STATS;
@@ -124,7 +125,7 @@ class Collector(_mysql.Collector):
             "db_up": 1,
             "db_uptime": time.time() - start / 1e6 if start else 0,
             "db_qps": num("stmts"), "db_tps": num("calls"),
-            "db_rows_read": num("rows_processed"),
+            "db_rows_read": None,
             "db_rows_inserted": num("ins"), "db_rows_updated": num("upd"), "db_rows_deleted": num("del"),
             "db_redo_written_bytes": num("redo"), "db_checkpoint_age_bytes": num("log_disk") or 0,
             "db_data_read_bytes": None, "db_data_written_bytes": None,
