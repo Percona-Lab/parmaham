@@ -50,6 +50,13 @@ ORIOLEDB_PG_MAJOR=18
 # pgrust release (binary from pgrust.com); it uses PG_VERSION's client tools
 PGRUST_VERSION=0.3
 
+# --- seekdb (seekdb/) -----------------------------------------------------------
+# seekdb release (GitHub tag v<version>), SQL port, and memory budget as a
+# share of RAM (the share MySQL's buffer pool gets; HammerDB runs alongside)
+SEEKDB_VERSION=1.4.0
+SEEKDB_PORT=2881
+SEEKDB_MEMORY_PCT=60
+
 # --- Data generation --------------------------------------------------------
 WAREHOUSES=200
 # Virtual users used to load data (0 = number of CPUs)

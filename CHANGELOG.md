@@ -1,5 +1,19 @@
 # Changelog
 
+## seekdb (2026-10-12)
+
+* **seekdb** (`seekdb/`): installs OceanBase's MySQL-compatible database from
+  its GitHub release packages (default 1.4.0), sized like MySQL, behind an
+  nftables rule that keeps its ports local (it listens on every address and
+  starts with a root account without a password). HammerDB's MySQL driver
+  works with two workarounds: a pre-created `utf8mb4` database (seekdb has no
+  `latin1`) and a history key added by copying the table. A seekdb collector
+  reads seekdb's own views (plan cache, `V$DML_STATS`, redo log, memstore).
+* `database-generate.sh` runs an optional `db_before_build` plug-in hook.
+* The MySQL-family helpers use `--defaults-file`, so commands run as root no
+  longer pick up root's credentials from `~/.my.cnf` instead of the
+  benchmark account's.
+
 ## OrioleDB metrics (2026-10-09)
 
 * OrioleDB dashboard figures where PostgreSQL's statistics do not see

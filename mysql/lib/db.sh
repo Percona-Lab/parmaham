@@ -12,6 +12,7 @@
 #   hdb_env                  export the PMH_DB_* settings for <db>/lib/hdb-db.tcl
 #   db_schema_exists         true when the benchmark database exists
 #   db_drop_schema           drop it
+#   db_before_build          (optional) preparation before HammerDB builds it
 #   db_after_build           fix-ups after HammerDB built the schema
 #   db_schema_size_mb        size of the benchmark database
 #   db_version               server version string
@@ -45,8 +46,11 @@ mysql_conf_dir() {
     esac
 }
 
-mysql_admin() { "$MYSQL_CLIENT" --defaults-extra-file="$MYSQL_ADMIN_CNF" "$@"; }
-mysql_bench() { "$MYSQL_CLIENT" --defaults-extra-file="$MYSQL_BENCH_CNF" "$MYSQL_BENCH_DB" "$@"; }
+# --defaults-file, not --defaults-extra-file: the client reads ~/.my.cnf
+# (root's is linked to the admin credentials) after an extra file, so
+# mysql_bench run as root would otherwise connect as root
+mysql_admin() { "$MYSQL_CLIENT" --defaults-file="$MYSQL_ADMIN_CNF" "$@"; }
+mysql_bench() { "$MYSQL_CLIENT" --defaults-file="$MYSQL_BENCH_CNF" "$MYSQL_BENCH_DB" "$@"; }
 
 db_admin() { if (($#)); then mysql_admin -NB -e "$1"; else mysql_admin; fi; }
 db_bench() { if (($#)); then mysql_bench -NB -e "$1"; else mysql_bench; fi; }

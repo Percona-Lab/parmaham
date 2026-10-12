@@ -18,6 +18,7 @@ Supported databases, one per node, each in its own directory:
 | `postgresql/` | **PostgreSQL** (PostgreSQL community repository, PGDG) | 18 |
 | `orioledb/` | **OrioleDB** (PostgreSQL with OrioleDB's patches and storage engine, built from source) | beta19 on PostgreSQL 18 |
 | `pgrust/` | **pgrust** (PostgreSQL rewritten in Rust; experimental, not production ready) | 0.3 |
+| `seekdb/` | **seekdb** (OceanBase's MySQL-compatible database, from its GitHub releases) | 1.4.0 |
 
 ```
 parmaham/
@@ -34,7 +35,8 @@ parmaham/
 │                                  static/chart.js and style.css are shared with compare/
 ├── compare/                       side-by-side comparison of two Parma Ham hosts
 ├── mysql/  mariadb/  postgresql/  one directory per database
-├── orioledb/  pgrust/             (orioledb/ and pgrust/ build on postgresql/lib):
+├── orioledb/  pgrust/  seekdb/    (orioledb/ and pgrust/ build on postgresql/lib,
+│                                  seekdb/ on mysql/lib):
 │   ├── database-install.sh        install + tune the database server for this node
 │   ├── database-generate.sh ...   links to the common scripts
 │   ├── dashboard_collector.py     database metrics for the dashboard
@@ -50,7 +52,7 @@ as root. Pick the database directory, here `mysql/`:
 git clone https://github.com/Percona-Lab/parmaham.git
 cd parmaham
 
-DB=mysql                                   # or mariadb, postgresql, orioledb, pgrust
+DB=mysql                                   # or mariadb, postgresql, orioledb, pgrust, seekdb
 $DB/database-install.sh                    # install the server, tuned to this node
 $DB/database-generate.sh                   # 200 warehouses
 $DB/compute-capacity.sh --background       # ~46 minutes: journalctl -fu parmaham-capacity
@@ -172,6 +174,32 @@ Re-running the script keeps the installation and only regenerates the tuning.
   with the same tuning as PostgreSQL plus the settings pgrust's quick start asks
   for (`io_method = sync`, a 64 MB stack).
 * Debian and Ubuntu only.
+
+### `seekdb/database-install.sh [--version 1.4.0] [--memory-pct 60]`
+
+* [seekdb](https://github.com/oceanbase/seekdb) is OceanBase's MySQL-compatible
+  database (it reports MySQL 5.7.25, OceanBase 4.3.5). The script installs the
+  release's `.deb` for this Debian or Ubuntu version, or the newest one for the
+  same distribution (it only depends on libaio and systemd; Ubuntu 26.04 uses
+  the 24.04 package).
+* `/etc/seekdb/seekdb.cnf` is written before the first start, because seekdb
+  takes the port, CPU count and memory budget only when it initializes its data
+  directory: memory budget 60% of RAM (`--memory-pct`), all CPUs.
+* seekdb listens on every address, has no setting to change that, and its root
+  account has no password until the script sets one. So
+  `parmaham-seekdb-firewall.service` (nftables, started before seekdb and at
+  boot) drops connections to its ports from anywhere but the loopback
+  interface. Clients use TCP to 127.0.0.1:2881; seekdb has no Unix socket.
+* It sets UTC as the time zone (seekdb defaults to +08:00) and raises
+  `ob_query_timeout` from 10 seconds to 1 hour, which long statements such as
+  the purge's `CALL` would otherwise exceed. seekdb's default isolation level,
+  READ COMMITTED, is kept.
+* HammerDB's MySQL driver needs two workarounds: the benchmark database is
+  created empty as `utf8mb4` before the build (HammerDB would create it as
+  `latin1`, which seekdb does not support), and the history key is added
+  after the build by copying `history` into a keyed table, 10 warehouses per
+  transaction (HammerDB adds it only for MySQL 8.0.30 and later, and seekdb
+  cannot add a primary key column to an existing table).
 
 ### `database-generate.sh [--warehouses 200] [--vu N] [--partition true] [--force]`
 
@@ -323,7 +351,12 @@ pool (`orioledb_page_stats()`, no hit ratio is reported), the MVCC backlog is
 the undo log size (`orioledb_undo_size()`; it grows between checkpoints and
 shrinks at each one), and rows read are index lookups plus rows read by
 sequential scans (OrioleDB counts index scans but not the rows they fetch).
-Data file I/O is not counted for OrioleDB tables and is left empty. Each `dashboard_collector.py` documents its mapping. Chart titles and series
+Data file I/O is not counted for OrioleDB tables and is left empty. seekdb has almost nothing in `SHOW GLOBAL STATUS` and no system statistics
+table, so its collector reads seekdb's own views: plan cache accesses as
+statements, CALL executions as transactions, `V$DML_STATS` for rows written,
+the redo log position, and the memstore (OceanBase's in-memory write buffer)
+in place of dirty buffers and the MVCC backlog; it reports no buffer hit
+ratio or data file I/O. Each `dashboard_collector.py` documents its mapping. Chart titles and series
 names come from the collector's `LABELS`, so each database's metrics appear
 under its own names on both the dashboard and the compare page.
 
@@ -500,8 +533,11 @@ OrioleDB beta19 (PostgreSQL 18.6) and pgrust 0.3 were set up on Ubuntu
 26.04 (2 vCPU, 4 GB) for a long-term comparison next to Percona Server and
 PostgreSQL; see CHANGELOG.md for results.
 
-Not tested yet: MariaDB and PostgreSQL on RHEL/Rocky (OrioleDB and pgrust
-install on Debian and Ubuntu only), Debian 12, aarch64,
+seekdb 1.4.0 was added to that comparison on 2026-10-12 (Ubuntu 26.04 with
+the Ubuntu 24.04 package).
+
+Not tested yet: MariaDB and PostgreSQL on RHEL/Rocky (OrioleDB, pgrust and
+seekdb install on Debian and Ubuntu only), Debian 12, aarch64,
 and multi-day runs with MariaDB and PostgreSQL.
 
 ## License

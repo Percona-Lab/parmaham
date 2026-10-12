@@ -53,6 +53,8 @@ export PMH_WAREHOUSES=$WAREHOUSES PMH_BUILD_VU=$BUILD_VU_EFF PMH_PARTITION=$PART
 LOGFILE=$PMH_LOG/generate.log
 log "building $WAREHOUSES warehouses with $BUILD_VU_EFF virtual users (log: $LOGFILE)"
 START=$(date +%s)
+# preparation a database needs before HammerDB builds the schema (plug-in hook)
+if declare -F db_before_build >/dev/null; then db_before_build; fi
 hammerdb_cli hdb-build.tcl 2>&1 | tee "$LOGFILE" | grep -E --line-buffered 'PARMAHAM|FINISHED|Error|error' || true
 
 BUILT=$(db_bench "SELECT COUNT(*) FROM warehouse" 2>/dev/null || echo 0)
