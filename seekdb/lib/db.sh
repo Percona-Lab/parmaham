@@ -44,7 +44,7 @@ db_before_build() {
     db_admin "CREATE DATABASE IF NOT EXISTS \`$MYSQL_BENCH_DB\` DEFAULT CHARACTER SET utf8mb4"
 }
 
-# HammerDB adds history's invisible key only for MySQL 8.0.30 and later
+# HammerDB adds history's key only for MySQL 8.0.30 and later
 # (seekdb reports 5.7.25), and seekdb cannot add a primary key column to an
 # existing table. Copy history into a table that has the key, 10 warehouses
 # per transaction, and swap it in (HammerDB's inserts name their columns).
@@ -54,12 +54,12 @@ db_after_build() {
     fi
     local cols="h_c_id, h_c_d_id, h_c_w_id, h_d_id, h_w_id, h_date, h_amount, h_data" max w
     max=$(db_bench "SELECT MAX(w_id) FROM warehouse")
-    log "adding a BIGINT invisible primary key to history (copying it, 10 warehouses per transaction)"
+    log "adding a BIGINT primary key to history (copying it, 10 warehouses per transaction)"
     db_bench "DROP TABLE IF EXISTS history_new"
     db_bench "CREATE TABLE history_new (
         h_c_id INT NULL, h_c_d_id INT NULL, h_c_w_id INT NULL, h_d_id INT NULL, h_w_id INT NULL,
         h_date DATETIME NULL, h_amount DECIMAL(6, 2) NULL, h_data VARCHAR(24) BINARY NULL,
-        id BIGINT NOT NULL AUTO_INCREMENT INVISIBLE, PRIMARY KEY (id))"
+        id BIGINT NOT NULL AUTO_INCREMENT, PRIMARY KEY (id))"
     for ((w = 1; w <= max; w += 10)); do
         db_bench "INSERT INTO history_new ($cols) SELECT $cols FROM history WHERE h_w_id BETWEEN $w AND $((w + 9))"
     done

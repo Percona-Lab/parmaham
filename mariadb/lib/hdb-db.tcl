@@ -13,7 +13,8 @@ diset tpcc maria_dbase [pmh_env PMH_DB_NAME tpcc]
 
 proc pmh_build_settings {} {
     diset tpcc maria_storage_engine innodb
-    # Invisible auto-increment PK on history: lets the purge job delete old
-    # history rows by primary-key range instead of scanning the table.
+    # Auto-increment PK on history: lets the purge job delete old history rows
+    # by primary-key range instead of scanning the table. HammerDB makes it
+    # invisible; db_after_build widens it to BIGINT and makes it visible.
     diset tpcc maria_history_pk true
 }

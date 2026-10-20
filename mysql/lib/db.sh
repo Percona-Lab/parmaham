@@ -96,10 +96,14 @@ db_schema_size_mb() {
 }
 
 db_after_build() {
-    # HammerDB creates history.id as INT; a permanent run would exhaust it, so
-    # widen it to BIGINT. The purge job deletes history rows by this key.
+    # HammerDB creates history.id as an invisible INT; a permanent run would
+    # exhaust INT, so widen it to BIGINT. The purge job deletes history rows by
+    # this key. MODIFY also makes it a visible column: change-data-capture
+    # readers that snapshot with SELECT * (Debezium, Flink CDC, Doris streaming
+    # jobs) cannot read a table whose primary key is invisible, and HammerDB's
+    # payment names its columns when it inserts, so nothing needs it hidden.
     log "widening history.id to BIGINT"
-    db_bench "ALTER TABLE history MODIFY id BIGINT NOT NULL AUTO_INCREMENT INVISIBLE"
+    db_bench "ALTER TABLE history MODIFY id BIGINT NOT NULL AUTO_INCREMENT"
 }
 
 db_purge_install() {

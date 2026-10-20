@@ -213,9 +213,15 @@ Re-running the script keeps the installation and only regenerates the tuning.
   Percona's client library is not symbol-compatible. The script therefore takes
   that one library from the MySQL 8.4 minimal tarball and keeps it private to
   HammerDB. MariaDB and PostgreSQL use the client libraries installed with the server.
-* MySQL and MariaDB: builds `history` with HammerDB's invisible primary key
-  option and widens it to `BIGINT`. A permanent run would otherwise exhaust
-  `INT`, and the purge job needs the key.
+* MySQL and MariaDB: builds `history` with HammerDB's primary key option and
+  widens the key to `BIGINT`. A permanent run would otherwise exhaust `INT`,
+  and the purge job needs the key. HammerDB creates the key as an invisible
+  column; the build makes it visible, because change-data-capture tools that
+  snapshot with `SELECT *` (Debezium, Flink CDC, Apache Doris streaming jobs)
+  cannot read a table whose primary key is invisible. HammerDB's inserts name
+  their columns, so the workload is unaffected. On a database built before
+  this change, `ALTER TABLE history MODIFY id BIGINT NOT NULL AUTO_INCREMENT`
+  makes the key visible (on MySQL it only changes metadata).
 * PostgreSQL, OrioleDB and pgrust: build with stored procedures
   (`pg_storedprocs`, HammerDB's recommendation for PostgreSQL 11 and later)
   and add a `BIGINT` identity primary key to `history`, which HammerDB creates
