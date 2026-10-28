@@ -49,7 +49,19 @@ while true; do
 
     export PMH_VU=$VU PMH_RAMPUP=$WORKLOAD_RAMPUP PMH_DURATION=$WORKLOAD_DURATION PMH_PACE_MS=$PACE_MS \
            PMH_TIMEPROFILE=$HAMMERDB_TIMEPROFILE
-    if RESULT=$(hammerdb_timed_run hdb-run.tcl "$LOGFILE"); then
+    rc=0; RESULT=$(hammerdb_timed_run hdb-run.tcl "$LOGFILE") || rc=$?
+    if (( rc == 2 )); then
+        # the database went away (restart, crash): HammerDB's users died with their connections. The run was stopped at
+        # once; a new one starts as soon as the database accepts connections again - no back-off, it is not a failure
+        json_kv iteration "$iteration" started_at "$STARTED" finished_at "$(date -u +%FT%TZ)" \
+            target_nopm "$TARGET_NOPM" target_mode "$TARGET_MODE" percent "$TARGET_PCT" vu "$VU" ok false \
+            error "database connection lost: run stopped, restarted when the database is back" log "runs/$(basename "$LOGFILE")" >> "$RESULTS"
+        warn "iteration $iteration: database connection lost - waiting for the database, then starting a new run"
+        write_status waiting iteration "$iteration" note "database connection lost: waiting for the database to come back"
+        until db_bench 'SELECT 1' &>/dev/null; do sleep 5; done
+        log "database is back: starting a new run"
+        continue
+    elif (( rc == 0 )); then
         read -r NOPM TPM <<< "$RESULT"
         failures=0
         json_kv iteration "$iteration" started_at "$STARTED" finished_at "$(date -u +%FT%TZ)" \

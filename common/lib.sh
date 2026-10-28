@@ -286,9 +286,33 @@ mask_passwords() {
 }
 
 # Run a timed HammerDB test, logging to $2. Prints "NOPM TPM" on success.
+# Lost or refused database connections in a HammerDB log (MySQL / MariaDB / PostgreSQL clients). A database restart kills
+# HammerDB's virtual users and they do not reconnect: the run would go on with dead users until its end.
+CONN_LOST_RE="Lost connection to (MySQL|MariaDB|server)|server has gone away|Can't connect to (local )?(MySQL|MariaDB)|server closed the connection unexpectedly|terminating connection due to administrator command|could not connect to server|connection to server .* failed|Connection refused"
+
+kill_tree() {
+    local p
+    for p in $(pgrep -P "$1"); do kill_tree "$p"; done
+    kill -TERM "$1" 2>/dev/null || true
+}
+
+# Run a HammerDB script into a log and print "<nopm> <tpm>" from its result. Returns 1 without a result, and 2 when the
+# database connection was lost during the run (the run is stopped at once, so the caller can start a new one as soon as
+# the database is back instead of waiting for the end of a run whose users are gone).
 hammerdb_timed_run() {
-    local script=$1 logfile=$2 line
-    hammerdb_cli "$script" > "$logfile" 2>&1 || true
+    local script=$1 logfile=$2 line pid
+    hammerdb_cli "$script" > "$logfile" 2>&1 &
+    pid=$!
+    while kill -0 "$pid" 2>/dev/null; do
+        if grep -qE "$CONN_LOST_RE" "$logfile" 2>/dev/null; then
+            kill_tree "$pid"
+            wait "$pid" 2>/dev/null || true
+            echo "database connection lost: $(grep -m1 -oE "$CONN_LOST_RE" "$logfile")" >> "$logfile"
+            return 2
+        fi
+        sleep 5
+    done
+    wait "$pid" 2>/dev/null || true
     line=$(grep -m1 -oE 'TEST RESULT : System achieved [0-9]+ NOPM from [0-9]+ ' "$logfile") || return 1
     # TEST RESULT : System achieved <nopm> NOPM from <tpm>
     set -- $line
